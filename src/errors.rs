@@ -49,3 +49,60 @@ impl fmt::Display for PoolError {
 }
 
 impl std::error::Error for PoolError {}
+
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum RubricError {
+    ReadPng {
+        path: std::path::PathBuf,
+        source: std::io::Error,
+    },
+    Pool(PoolError),
+    ParseVerdict {
+        text: String,
+        source: serde_json::Error,
+    },
+    Assertion {
+        name: String,
+        reason: String,
+        anomalies: Vec<String>,
+    },
+}
+
+impl fmt::Display for RubricError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ReadPng { path, source } => {
+                write!(f, "read png {}: {source}", path.display())
+            }
+            Self::Pool(error) => error.fmt(f),
+            Self::ParseVerdict { text, source } => {
+                write!(f, "parse verdict from {text:?}: {source}")
+            }
+            Self::Assertion {
+                name,
+                reason,
+                anomalies,
+            } => {
+                write!(f, "[{name}] {reason} (anomalies: {anomalies:?})")
+            }
+        }
+    }
+}
+
+impl std::error::Error for RubricError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::ReadPng { source, .. } => Some(source),
+            Self::Pool(error) => Some(error),
+            Self::ParseVerdict { source, .. } => Some(source),
+            Self::Assertion { .. } => None,
+        }
+    }
+}
+
+impl From<PoolError> for RubricError {
+    fn from(error: PoolError) -> Self {
+        Self::Pool(error)
+    }
+}

@@ -17,7 +17,7 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 pub use cli::Cli;
-pub use errors::{PoolError, RateLimitEvent};
+pub use errors::{PoolError, RateLimitEvent, RubricError};
 pub use pool::{PoolConfig, PoolStats, RubricPool};
 pub use typed_strings::{RubricEffort, RubricVerdictStatus};
 
@@ -84,12 +84,15 @@ pub fn encode_png(png_path: &Path) -> Result<String, PoolError> {
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
-pub fn assert_image_rubric(png_path: &Path, name: &str, question: &str) -> Result<(), String> {
+pub fn assert_image_rubric(png_path: &Path, name: &str, question: &str) -> Result<(), RubricError> {
     let verdict = evaluate_image_rubric(png_path, question)?;
     assert_verdict(name, verdict)
 }
 
-pub fn evaluate_image_rubric(png_path: &Path, question: &str) -> Result<RubricVerdict, String> {
+pub fn evaluate_image_rubric(
+    png_path: &Path,
+    question: &str,
+) -> Result<RubricVerdict, RubricError> {
     evaluate_image_rubric_with_options(png_path, question, default_options())
 }
 
@@ -97,7 +100,7 @@ pub fn evaluate_image_rubric_with_options(
     png_path: &Path,
     question: &str,
     opts: RubricOptions,
-) -> Result<RubricVerdict, String> {
+) -> Result<RubricVerdict, RubricError> {
     evaluate_image_rubric_with_config(png_path, question, opts, RubricRunConfig::default())
 }
 
@@ -106,8 +109,11 @@ pub fn evaluate_image_rubric_with_config(
     question: &str,
     opts: RubricOptions,
     config: RubricRunConfig,
-) -> Result<RubricVerdict, String> {
-    let bytes = std::fs::read(png_path).map_err(|e| format!("read png: {e}"))?;
+) -> Result<RubricVerdict, RubricError> {
+    let bytes = std::fs::read(png_path).map_err(|source| RubricError::ReadPng {
+        path: png_path.to_path_buf(),
+        source,
+    })?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     let text = run_codex_acp_rubric(
         &b64,
@@ -122,21 +128,22 @@ pub fn evaluate_image_rubric_with_config(
         &config,
     )?;
 
-    parse_verdict(&text).map_err(|e| format!("parse verdict from {text:?}: {e}"))
+    parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
 }
 
 pub fn parse_verdict(text: &str) -> Result<RubricVerdict, serde_json::Error> {
     serde_json::from_str(text)
 }
 
-pub fn assert_verdict(name: &str, verdict: RubricVerdict) -> Result<(), String> {
+pub fn assert_verdict(name: &str, verdict: RubricVerdict) -> Result<(), RubricError> {
     if verdict.verdict.is_pass() {
         Ok(())
     } else {
-        Err(format!(
-            "[{name}] {} (anomalies: {:?})",
-            verdict.reason, verdict.anomalies
-        ))
+        Err(RubricError::Assertion {
+            name: name.to_string(),
+            reason: verdict.reason,
+            anomalies: verdict.anomalies,
+        })
     }
 }
 
@@ -151,21 +158,18 @@ fn run_codex_acp_rubric(
     effort: &str,
     system_prompt: &str,
     config: &RubricRunConfig,
-) -> Result<String, String> {
+) -> Result<String, PoolError> {
     let mut acp = AcpClient::spawn(
         &config.codex_acp_binary,
         model,
         effort,
         &config.extra_env,
         config.cwd.as_deref(),
-    )
-    .map_err(|e| e.to_string())?;
-    acp.start_session(config.cwd.as_deref())
-        .map_err(|e| e.to_string())?;
+    )?;
+    acp.start_session(config.cwd.as_deref())?;
 
     let prompt = format!("{system_prompt}\n\nQuestion: {question}");
     acp.prompt_image(&prompt, b64_png)
-        .map_err(|e| e.to_string())
 }
 
 struct AcpClient {
@@ -446,8 +450,9 @@ mod tests {
             anomalies: vec!["black frame".into()],
         };
         let err = assert_verdict("vm-1", verdict).unwrap_err();
-        assert!(err.contains("vm-1"));
-        assert!(err.contains("blank screen"));
+        let message = err.to_string();
+        assert!(message.contains("vm-1"));
+        assert!(message.contains("blank screen"));
     }
 
     #[test]
