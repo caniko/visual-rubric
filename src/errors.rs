@@ -2,23 +2,51 @@ use std::fmt;
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+/// One observed Codex ACP rate-limit event.
 pub struct RateLimitEvent {
+    /// Worker that observed the rate limit.
     pub worker_id: usize,
+    /// Retry attempt number.
     pub attempt: u32,
+    /// Delay applied before the next retry.
     pub delay: Duration,
+    /// Server-provided retry delay, when present.
     pub retry_after: Option<Duration>,
 }
 
+/// Errors produced by the Codex ACP pool and worker runtime.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PoolError {
+    /// Failed to spawn or initialize Codex ACP.
     Spawn(String),
+    /// JSON-RPC request or response failure.
     Rpc(String),
-    RateLimited { retry_after: Option<Duration> },
+    /// Codex ACP reported a rate limit.
+    RateLimited {
+        /// Server-provided retry delay, when present.
+        retry_after: Option<Duration>,
+    },
+    /// Codex ACP reported exhausted usage quota.
     QuotaExceeded,
-    WorkerCrashed { worker_id: usize, message: String },
+    /// A worker process or thread crashed.
+    WorkerCrashed {
+        /// Worker that crashed.
+        worker_id: usize,
+        /// Crash detail.
+        message: String,
+    },
+    /// A model response could not be parsed into a verdict.
     ParseVerdict(String),
-    Timeout { worker_id: usize, timeout: Duration },
+    /// A submitted job exceeded its timeout.
+    Timeout {
+        /// Worker that timed out.
+        worker_id: usize,
+        /// Configured timeout.
+        timeout: Duration,
+    },
+    /// No worker is currently available to accept jobs.
     NoLiveWorkers,
+    /// The pool has been closed.
     Closed,
 }
 
@@ -50,21 +78,33 @@ impl fmt::Display for PoolError {
 
 impl std::error::Error for PoolError {}
 
+/// Errors returned by public one-shot rubric APIs.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum RubricError {
+    /// The PNG file could not be read.
     ReadPng {
+        /// Path that failed to read.
         path: std::path::PathBuf,
+        /// Underlying filesystem error.
         source: std::io::Error,
     },
+    /// Codex ACP pool or worker failure.
     Pool(PoolError),
+    /// Model output could not be parsed as a rubric verdict.
     ParseVerdict {
+        /// Raw model output.
         text: String,
+        /// Underlying JSON error.
         source: serde_json::Error,
     },
+    /// A parsed verdict failed the assertion.
     Assertion {
+        /// Screenshot or check name.
         name: String,
+        /// Failure reason from the verdict.
         reason: String,
+        /// Reported visual anomalies.
         anomalies: Vec<String>,
     },
 }

@@ -3,15 +3,20 @@ use std::ops::Deref;
 
 use serde::{Deserialize, Deserializer, Serialize};
 
+/// Validated rubric verdict status.
 #[derive(Clone, Debug, Serialize, PartialEq, Eq, Hash)]
 #[serde(transparent)]
 pub struct RubricVerdictStatus(String);
 
 impl RubricVerdictStatus {
+    /// Returns the status as the JSON wire value.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
 
+    /// Returns true when the status is `pass`.
+    #[must_use]
     pub fn is_pass(&self) -> bool {
         self.0 == "pass"
     }
@@ -64,11 +69,14 @@ impl PartialEq<&str> for RubricVerdictStatus {
     }
 }
 
+/// Validated Codex ACP reasoning effort value.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(transparent)]
 pub struct RubricEffort(String);
 
 impl RubricEffort {
+    /// Returns the effort as the Codex ACP wire value.
+    #[must_use]
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }

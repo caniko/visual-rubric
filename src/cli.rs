@@ -1,3 +1,5 @@
+//! Command-line interface and audit report types.
+
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, anyhow};
@@ -16,6 +18,7 @@ use static_server::StaticServer;
 #[cfg(test)]
 use static_server::{content_type, resolve_static_path};
 
+/// Parsed command-line interface for `visual-rubric`.
 #[derive(Debug, Parser)]
 #[command(name = "visual-rubric")]
 pub struct Cli {
@@ -143,6 +146,11 @@ struct ViewportArg {
     height: u32,
 }
 
+/// Runs a parsed CLI command.
+///
+/// # Errors
+///
+/// Returns command, IO, browser, Codex ACP, or rubric audit failures.
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Some(Commands::Image(args)) => run_image(args),

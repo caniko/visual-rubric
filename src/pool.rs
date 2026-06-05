@@ -17,6 +17,7 @@ use crate::{
 const DEFAULT_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 const RECYCLE_SPAWN_ATTEMPTS: u32 = 2;
 
+/// Reusable worker pool for evaluating screenshot rubrics through Codex ACP.
 pub struct RubricPool {
     senders: Vec<mpsc::Sender<Job>>,
     handles: Mutex<Vec<JoinHandle<()>>>,
@@ -25,17 +26,28 @@ pub struct RubricPool {
     shared: Arc<SharedPoolState>,
 }
 
+/// Configuration for a [`RubricPool`].
 #[derive(Clone, Debug)]
 pub struct PoolConfig {
+    /// Number of worker processes to keep alive.
     pub workers: usize,
+    /// Number of prompts after which a worker is recycled.
     pub max_prompts_per_worker: u32,
+    /// Number of retries for recoverable worker or rate-limit failures.
     pub max_retries: u32,
+    /// Initial retry backoff.
     pub backoff_base: Duration,
+    /// Maximum retry backoff.
     pub backoff_cap: Duration,
+    /// Options applied when a submitted job omits an override.
     pub default_options: RubricOptions,
+    /// Path to the `codex-acp` executable.
     pub codex_acp_binary: PathBuf,
+    /// Extra environment variables for worker processes.
     pub extra_env: Vec<(OsString, OsString)>,
+    /// Maximum time to wait for one submitted job.
     pub submit_timeout: Duration,
+    /// Optional Codex home directory to seed into worker-local homes.
     pub source_codex_home: Option<PathBuf>,
 }
 
@@ -63,11 +75,16 @@ struct Job {
     reply: mpsc::Sender<Result<RubricVerdict, PoolError>>,
 }
 
+/// Snapshot of pool execution counters.
 #[derive(Clone, Debug, Default)]
 pub struct PoolStats {
+    /// Successfully completed jobs.
     pub completed: u64,
+    /// Failed jobs.
     pub failures: u64,
+    /// Rate-limit events observed by workers.
     pub rate_limit_events: Vec<RateLimitEvent>,
+    /// Number of worker runtime recycles.
     pub worker_recycles: u64,
 }
 
@@ -82,6 +99,12 @@ struct SharedPoolState {
 }
 
 impl RubricPool {
+    /// Starts a worker pool from the supplied configuration.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PoolError`] when configuration is invalid or worker startup
+    /// fails.
     pub fn new(config: PoolConfig) -> Result<Self, PoolError> {
         if config.workers == 0 {
             return Err(PoolError::Spawn(
@@ -151,6 +174,12 @@ impl RubricPool {
         })
     }
 
+    /// Submits one PNG rubric job to a live worker.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PoolError`] for missing workers, worker crashes, timeouts, PNG
+    /// IO, Codex ACP failures, or verdict parsing failures.
     pub fn submit(
         &self,
         png_path: &Path,
@@ -190,6 +219,8 @@ impl RubricPool {
         }
     }
 
+    /// Stops workers and returns final pool statistics.
+    #[must_use]
     pub fn shutdown(self) -> PoolStats {
         let Self {
             senders,
@@ -204,6 +235,8 @@ impl RubricPool {
         shared.stats()
     }
 
+    /// Returns current pool statistics without shutting the pool down.
+    #[must_use]
     pub fn stats(&self) -> PoolStats {
         self.shared.stats()
     }

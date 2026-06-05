@@ -2,6 +2,7 @@
 //!
 //! This crate owns the Codex ACP plumbing so browser screenshots, offscreen
 //! renderer captures, and VM/VNC screenshots can use one rubric path.
+#![warn(missing_docs)]
 
 pub mod cli;
 mod errors;
@@ -22,24 +23,36 @@ pub use pool::{PoolConfig, PoolStats, RubricPool};
 pub use typed_strings::{RubricEffort, RubricVerdictStatus};
 
 #[derive(Debug, Deserialize, Serialize)]
+/// Parsed rubric verdict returned by Codex ACP.
 pub struct RubricVerdict {
+    /// Machine-readable pass/fail status.
     pub verdict: RubricVerdictStatus,
+    /// Human-readable reason for the verdict.
     pub reason: String,
+    /// Optional anomalies observed in the screenshot.
     #[serde(default)]
     pub anomalies: Vec<String>,
 }
 
+/// Optional model settings for one rubric request.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct RubricOptions {
+    /// Codex model override.
     pub model: Option<String>,
+    /// Reasoning effort override.
     pub effort: Option<RubricEffort>,
+    /// System prompt override.
     pub system_prompt: Option<String>,
 }
 
+/// Runtime configuration for direct Codex ACP calls.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RubricRunConfig {
+    /// Path to the `codex-acp` executable.
     pub codex_acp_binary: PathBuf,
+    /// Extra environment variables for the child process.
     pub extra_env: Vec<(OsString, OsString)>,
+    /// Working directory passed to Codex ACP.
     pub cwd: Option<PathBuf>,
 }
 
@@ -53,6 +66,7 @@ impl Default for RubricRunConfig {
     }
 }
 
+/// Default system prompt used for screenshot rubric requests.
 pub const DEFAULT_SYSTEM_PROMPT: &str = "\
 You are a UI regression auditor. \
 You will be shown one screenshot and asked a specific question. Reply with strict \
@@ -63,9 +77,13 @@ elements, missing/blank regions where content should appear, illegible contrast,
 visibly broken layout. Cosmetic differences from previous runs are NOT failures \
 unless they make the UI worse by the criteria above.";
 
+/// Default Codex ACP model.
 pub const DEFAULT_CODEX_ACP_MODEL: &str = "gpt-5.4-mini";
+/// Default Codex ACP reasoning effort.
 pub const DEFAULT_CODEX_ACP_REASONING_EFFORT: &str = "medium";
 
+/// Returns the default rubric options.
+#[must_use]
 pub fn default_options() -> RubricOptions {
     RubricOptions {
         model: Some(DEFAULT_CODEX_ACP_MODEL.to_string()),
@@ -74,21 +92,39 @@ pub fn default_options() -> RubricOptions {
     }
 }
 
+/// Returns the default Codex ACP executable name.
+#[must_use]
 pub fn default_codex_acp_binary() -> PathBuf {
     PathBuf::from("codex-acp")
 }
 
+/// Reads and base64-encodes a PNG file.
+///
+/// # Errors
+///
+/// Returns [`PoolError::Rpc`] when the PNG cannot be read.
 pub fn encode_png(png_path: &Path) -> Result<String, PoolError> {
     let bytes = std::fs::read(png_path)
         .map_err(|e| PoolError::Rpc(format!("read png {}: {e}", png_path.display())))?;
     Ok(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
 
+/// Evaluates a PNG and returns an error when the verdict is not pass.
+///
+/// # Errors
+///
+/// Returns [`RubricError`] for PNG IO, Codex ACP, JSON parsing, or failed
+/// assertion errors.
 pub fn assert_image_rubric(png_path: &Path, name: &str, question: &str) -> Result<(), RubricError> {
     let verdict = evaluate_image_rubric(png_path, question)?;
     assert_verdict(name, verdict)
 }
 
+/// Evaluates a PNG with default options.
+///
+/// # Errors
+///
+/// Returns [`RubricError`] for PNG IO, Codex ACP, or verdict parsing failures.
 pub fn evaluate_image_rubric(
     png_path: &Path,
     question: &str,
@@ -96,6 +132,11 @@ pub fn evaluate_image_rubric(
     evaluate_image_rubric_with_options(png_path, question, default_options())
 }
 
+/// Evaluates a PNG with caller-provided model options.
+///
+/// # Errors
+///
+/// Returns [`RubricError`] for PNG IO, Codex ACP, or verdict parsing failures.
 pub fn evaluate_image_rubric_with_options(
     png_path: &Path,
     question: &str,
@@ -104,6 +145,11 @@ pub fn evaluate_image_rubric_with_options(
     evaluate_image_rubric_with_config(png_path, question, opts, RubricRunConfig::default())
 }
 
+/// Evaluates a PNG with caller-provided model and runtime configuration.
+///
+/// # Errors
+///
+/// Returns [`RubricError`] for PNG IO, Codex ACP, or verdict parsing failures.
 pub fn evaluate_image_rubric_with_config(
     png_path: &Path,
     question: &str,
@@ -131,10 +177,21 @@ pub fn evaluate_image_rubric_with_config(
     parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
 }
 
+/// Parses strict rubric JSON into a typed verdict.
+///
+/// # Errors
+///
+/// Returns the underlying JSON error when the text is malformed or contains an
+/// unsupported verdict status.
 pub fn parse_verdict(text: &str) -> Result<RubricVerdict, serde_json::Error> {
     serde_json::from_str(text)
 }
 
+/// Converts a verdict into an assertion-style result.
+///
+/// # Errors
+///
+/// Returns [`RubricError::Assertion`] when the verdict is not pass.
 pub fn assert_verdict(name: &str, verdict: RubricVerdict) -> Result<(), RubricError> {
     if verdict.verdict.is_pass() {
         Ok(())
@@ -147,6 +204,11 @@ pub fn assert_verdict(name: &str, verdict: RubricVerdict) -> Result<(), RubricEr
     }
 }
 
+/// Runs the CLI command.
+///
+/// # Errors
+///
+/// Returns command parsing, IO, Codex ACP, or audit failures as [`anyhow::Error`].
 pub fn run(cli: Cli) -> anyhow::Result<()> {
     cli::run(cli)
 }
@@ -450,9 +512,20 @@ mod tests {
             anomalies: vec!["black frame".into()],
         };
         let err = assert_verdict("vm-1", verdict).unwrap_err();
+        assert!(matches!(err, RubricError::Assertion { .. }));
         let message = err.to_string();
         assert!(message.contains("vm-1"));
         assert!(message.contains("blank screen"));
+    }
+
+    #[test]
+    fn evaluate_with_config_preserves_parse_error_source() {
+        let err = RubricError::ParseVerdict {
+            text: "not json".to_string(),
+            source: parse_verdict("not json").unwrap_err(),
+        };
+        assert!(std::error::Error::source(&err).is_some());
+        assert!(err.to_string().contains("not json"));
     }
 
     #[test]

@@ -12,59 +12,95 @@ use serde::{Deserialize, Serialize};
 use super::static_server::StaticServer;
 use super::{AuditArgs, ImageArgs, ViewportArg, evaluate_image};
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+/// Aggregate status for an audit run.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditStatus {
+    /// Every evaluated rubric passed.
     Pass,
+    /// At least one evaluated rubric failed.
     Fail,
+    /// At least one screenshot produced an execution or model error.
     Error,
+    /// All screenshots skipped AI evaluation.
     Skipped,
 }
 
+/// JSON report produced by the `audit` command.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AuditReport {
+    /// Report schema version.
     pub schema_version: u32,
+    /// Aggregate status across all screenshots.
     pub aggregate_status: AuditStatus,
+    /// Hosted URL captured during the audit.
     pub url: String,
+    /// Total audit elapsed time in milliseconds.
     pub elapsed_ms: u128,
+    /// Options recorded for reproducibility.
     pub options: AuditOptionsReport,
+    /// Per-screenshot audit results.
     pub screenshots: Vec<ScreenshotReport>,
 }
 
+/// Options recorded in an [`AuditReport`].
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct AuditOptionsReport {
+    /// Rubric question used for each screenshot.
     pub question: String,
+    /// Model override used for the run.
     pub model: Option<String>,
+    /// Reasoning effort override used for the run.
     pub effort: Option<String>,
+    /// Whether a system prompt override was provided.
     pub system_prompt_provided: bool,
+    /// Whether AI evaluation was skipped.
     pub skip_ai: bool,
+    /// Whether deterministic pass verdicts were generated.
     pub fake_pass: bool,
 }
 
+/// One screenshot entry in an [`AuditReport`].
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct ScreenshotReport {
+    /// Viewport name.
     pub name: String,
+    /// Viewport width in CSS pixels.
     pub width: u32,
+    /// Viewport height in CSS pixels.
     pub height: u32,
+    /// Screenshot path.
     pub path: PathBuf,
+    /// Rubric result for this screenshot.
     pub rubric: RubricReport,
 }
 
+/// Per-screenshot rubric outcome.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum RubricReport {
+    /// The rubric passed.
     Pass {
+        /// Pass reason.
         reason: String,
+        /// Reported anomalies.
         anomalies: Vec<String>,
     },
+    /// The rubric failed.
     Fail {
+        /// Failure reason.
         reason: String,
+        /// Reported anomalies.
         anomalies: Vec<String>,
     },
+    /// The rubric could not be evaluated.
     Error {
+        /// Error message.
         message: String,
     },
+    /// AI evaluation was skipped.
     Skipped {
+        /// Skip reason.
         reason: String,
     },
 }
@@ -120,7 +156,7 @@ pub(super) fn run_audit(args: AuditArgs) -> Result<()> {
     let aggregate_status = aggregate_status(&screenshots);
     let report = AuditReport {
         schema_version: 1,
-        aggregate_status: aggregate_status.clone(),
+        aggregate_status,
         url,
         elapsed_ms: started.elapsed().as_millis(),
         options: AuditOptionsReport {
@@ -168,7 +204,11 @@ fn evaluate_audit_image(args: &AuditArgs, image: &Path) -> RubricReport {
 
 fn create_clean_dir(path: &Path) -> Result<()> {
     if path.exists() {
-        fs::remove_dir_all(path).with_context(|| format!("clean {}", path.display()))?;
+        match fs::remove_dir_all(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error).with_context(|| format!("clean {}", path.display())),
+        }
     }
     fs::create_dir_all(path).with_context(|| format!("create {}", path.display()))
 }
