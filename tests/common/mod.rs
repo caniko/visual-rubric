@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use std::path::PathBuf;
 
 pub fn write_fixture_png(dir: &tempfile::TempDir) -> PathBuf {
@@ -13,4 +15,31 @@ fn fixture_png() -> &'static [u8] {
         2, 0, 239, 191, 167, 219, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
     ];
     PNG
+}
+
+#[cfg(unix)]
+pub fn write_fake_browser(path: &std::path::Path, body: &str) {
+    use std::io::Write as _;
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let mut file = std::fs::File::create(path).expect("create fake browser");
+    file.write_all(body.as_bytes()).expect("write fake browser");
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(unix)]
+pub fn fake_browser_success_script() -> &'static str {
+    r#"#!/usr/bin/env bash
+set -euo pipefail
+out=
+for arg in "$@"; do
+  case "$arg" in
+    --screenshot=*) out="${arg#--screenshot=}" ;;
+  esac
+done
+test -n "$out"
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=' | base64 -d > "$out"
+"#
 }

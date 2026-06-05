@@ -36,6 +36,23 @@ pub struct RubricOptions {
     pub system_prompt: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RubricRunConfig {
+    pub codex_acp_binary: PathBuf,
+    pub extra_env: Vec<(OsString, OsString)>,
+    pub cwd: Option<PathBuf>,
+}
+
+impl Default for RubricRunConfig {
+    fn default() -> Self {
+        Self {
+            codex_acp_binary: default_codex_acp_binary(),
+            extra_env: Vec::new(),
+            cwd: None,
+        }
+    }
+}
+
 pub const DEFAULT_SYSTEM_PROMPT: &str = "\
 You are a UI regression auditor. \
 You will be shown one screenshot and asked a specific question. Reply with strict \
@@ -81,6 +98,15 @@ pub fn evaluate_image_rubric_with_options(
     question: &str,
     opts: RubricOptions,
 ) -> Result<RubricVerdict, String> {
+    evaluate_image_rubric_with_config(png_path, question, opts, RubricRunConfig::default())
+}
+
+pub fn evaluate_image_rubric_with_config(
+    png_path: &Path,
+    question: &str,
+    opts: RubricOptions,
+    config: RubricRunConfig,
+) -> Result<RubricVerdict, String> {
     let bytes = std::fs::read(png_path).map_err(|e| format!("read png: {e}"))?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     let text = run_codex_acp_rubric(
@@ -93,6 +119,7 @@ pub fn evaluate_image_rubric_with_options(
         opts.system_prompt
             .as_deref()
             .unwrap_or(DEFAULT_SYSTEM_PROMPT),
+        &config,
     )?;
 
     parse_verdict(&text).map_err(|e| format!("parse verdict from {text:?}: {e}"))
@@ -123,10 +150,18 @@ fn run_codex_acp_rubric(
     model: &str,
     effort: &str,
     system_prompt: &str,
+    config: &RubricRunConfig,
 ) -> Result<String, String> {
-    let mut acp = AcpClient::spawn(&default_codex_acp_binary(), model, effort, &[])
+    let mut acp = AcpClient::spawn(
+        &config.codex_acp_binary,
+        model,
+        effort,
+        &config.extra_env,
+        config.cwd.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
+    acp.start_session(config.cwd.as_deref())
         .map_err(|e| e.to_string())?;
-    acp.start_session().map_err(|e| e.to_string())?;
 
     let prompt = format!("{system_prompt}\n\nQuestion: {question}");
     acp.prompt_image(&prompt, b64_png)
@@ -147,6 +182,7 @@ impl AcpClient {
         model: &str,
         effort: &str,
         extra_env: &[(OsString, OsString)],
+        cwd: Option<&Path>,
     ) -> Result<Self, PoolError> {
         let mut command = Command::new(binary);
         command
@@ -157,6 +193,9 @@ impl AcpClient {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        if let Some(cwd) = cwd {
+            command.current_dir(cwd);
+        }
         for (key, value) in extra_env {
             command.env::<&OsStr, &OsStr>(key.as_os_str(), value.as_os_str());
         }
@@ -182,7 +221,7 @@ impl AcpClient {
         })
     }
 
-    fn start_session(&mut self) -> Result<(), PoolError> {
+    fn start_session(&mut self, cwd: Option<&Path>) -> Result<(), PoolError> {
         let init_id = self.claim_id();
         self.request(
             init_id,
@@ -197,10 +236,14 @@ impl AcpClient {
             }),
         )?;
 
-        let cwd = std::env::current_dir()
-            .map_err(|e| PoolError::Rpc(format!("current dir: {e}")))?
-            .to_string_lossy()
-            .into_owned();
+        let cwd = match cwd {
+            Some(cwd) => cwd.to_path_buf(),
+            None => {
+                std::env::current_dir().map_err(|e| PoolError::Rpc(format!("current dir: {e}")))?
+            }
+        }
+        .to_string_lossy()
+        .into_owned();
         let session_request_id = self.claim_id();
         let session_id = self.request(
             session_request_id,
@@ -344,13 +387,41 @@ fn rpc_result(msg: serde_json::Value) -> Result<serde_json::Value, PoolError> {
         if lowered.contains("usage limit") || lowered.contains("quota") {
             Err(PoolError::QuotaExceeded)
         } else if lowered.contains("rate limit") {
-            Err(PoolError::RateLimited { retry_after: None })
+            Err(PoolError::RateLimited {
+                retry_after: parse_retry_after(error),
+            })
         } else {
             Err(PoolError::Rpc(format!("codex-acp rpc error: {error}")))
         }
     } else {
         Ok(msg["result"].clone())
     }
+}
+
+fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
+    let candidates = [
+        &error["retry_after"],
+        &error["retryAfter"],
+        &error["data"]["retry_after"],
+        &error["data"]["retryAfter"],
+    ];
+    for candidate in candidates {
+        if let Some(seconds) = candidate.as_u64() {
+            return Some(std::time::Duration::from_secs(seconds));
+        }
+        if let Some(seconds) = candidate.as_f64()
+            && seconds.is_finite()
+            && seconds >= 0.0
+        {
+            return Some(std::time::Duration::from_secs_f64(seconds));
+        }
+        if let Some(value) = candidate.as_str()
+            && let Ok(seconds) = value.parse::<u64>()
+        {
+            return Some(std::time::Duration::from_secs(seconds));
+        }
+    }
+    None
 }
 
 #[cfg(test)]

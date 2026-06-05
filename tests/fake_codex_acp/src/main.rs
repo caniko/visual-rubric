@@ -3,12 +3,52 @@ use std::io::{BufRead as _, BufReader, Write as _};
 
 fn main() {
     let mode = std::env::var("FAKE_CODEX_ACP_MODE").unwrap_or_else(|_| "quota".to_string());
+    if mode == "crash" {
+        eprintln!("fake codex-acp crash requested");
+        std::process::exit(2);
+    }
     if let Ok(path) = std::env::var("FAKE_CODEX_ACP_SPAWN_LOG") {
         let _ = OpenOptions::new()
             .create(true)
             .append(true)
             .open(path)
             .and_then(|mut file| writeln!(file, "spawn"));
+    }
+    if let Ok(path) = std::env::var("FAKE_CODEX_ACP_ARG_LOG") {
+        let _ = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| {
+                writeln!(file, "{}", std::env::args().collect::<Vec<_>>().join("\n"))
+            });
+    }
+    if let Ok(path) = std::env::var("FAKE_CODEX_ACP_CWD_LOG")
+        && let Ok(cwd) = std::env::current_dir()
+    {
+        let _ = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| writeln!(file, "{}", cwd.display()));
+    }
+    if let Ok(path) = std::env::var("FAKE_CODEX_ACP_ENV_LOG")
+        && let Ok(key) = std::env::var("FAKE_CODEX_ACP_LOG_ENV_KEY")
+        && let Ok(value) = std::env::var(key)
+    {
+        let _ = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| writeln!(file, "{value}"));
+    } else if let Ok(path) = std::env::var("FAKE_CODEX_ACP_ENV_LOG")
+        && let Ok(value) = std::env::var("FAKE_CODEX_ACP_CUSTOM_ENV")
+    {
+        let _ = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| writeln!(file, "{value}"));
     }
 
     let stdin = std::io::stdin();
@@ -33,7 +73,13 @@ fn main() {
                 "id": id,
                 "result": { "sessionId": "fake-session" }
             }),
-            "session/prompt" if mode == "pass" => {
+            "session/prompt" if mode == "prompt_crash" => {
+                eprintln!("fake codex-acp prompt crash requested");
+                std::process::exit(3);
+            }
+            "session/prompt"
+                if mode == "pass" || mode == "fail" || mode == "chunks" || mode == "malformed" =>
+            {
                 let session_id = msg["params"]["sessionId"]
                     .as_str()
                     .unwrap_or("fake-session");
@@ -46,28 +92,52 @@ fn main() {
                         .open(path)
                         .and_then(|mut file| writeln!(file, "{prompt}"));
                 }
-                let update = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "method": "session/update",
-                    "params": {
-                        "sessionId": session_id,
-                        "update": {
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": {
-                                "text": "{\"verdict\":\"pass\",\"reason\":\"fake pass\",\"anomalies\":[]}"
+                let chunks: Vec<&str> = match mode.as_str() {
+                    "fail" => vec![
+                        "{\"verdict\":\"fail\",\"reason\":\"fake fail\",\"anomalies\":[\"bad\"]}",
+                    ],
+                    "chunks" => vec![
+                        "{\"verdict\":\"pass\",",
+                        "\"reason\":\"chunked\",",
+                        "\"anomalies\":[]}",
+                    ],
+                    "malformed" => vec!["not json"],
+                    _ => vec!["{\"verdict\":\"pass\",\"reason\":\"fake pass\",\"anomalies\":[]}"],
+                };
+                for chunk in chunks {
+                    let update = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "session/update",
+                        "params": {
+                            "sessionId": session_id,
+                            "update": {
+                                "sessionUpdate": "agent_message_chunk",
+                                "content": {
+                                    "text": chunk
+                                }
                             }
                         }
-                    }
-                });
-                let _ = serde_json::to_writer(&mut stdout, &update);
-                let _ = stdout.write_all(b"\n");
-                let _ = stdout.flush();
+                    });
+                    let _ = serde_json::to_writer(&mut stdout, &update);
+                    let _ = stdout.write_all(b"\n");
+                    let _ = stdout.flush();
+                }
                 serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,
                     "result": {}
                 })
             }
+            "session/prompt" if mode == "rate_limit" => serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "error": {
+                        "code": -32000,
+                        "message": "rate limit reached",
+                        "retry_after": 3
+                    }
+                }
+            ),
             "session/prompt" => serde_json::json!({
                     "jsonrpc": "2.0",
                     "id": id,

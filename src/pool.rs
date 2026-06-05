@@ -14,7 +14,7 @@ use crate::{
     default_options, encode_png, parse_verdict,
 };
 
-const SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
+const DEFAULT_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 const RECYCLE_SPAWN_ATTEMPTS: u32 = 2;
 
 pub struct RubricPool {
@@ -35,6 +35,8 @@ pub struct PoolConfig {
     pub default_options: RubricOptions,
     pub codex_acp_binary: PathBuf,
     pub extra_env: Vec<(OsString, OsString)>,
+    pub submit_timeout: Duration,
+    pub source_codex_home: Option<PathBuf>,
 }
 
 impl Default for PoolConfig {
@@ -48,6 +50,8 @@ impl Default for PoolConfig {
             default_options: default_options(),
             codex_acp_binary: default_codex_acp_binary(),
             extra_env: Vec::new(),
+            submit_timeout: DEFAULT_SUBMIT_TIMEOUT,
+            source_codex_home: None,
         }
     }
 }
@@ -173,11 +177,11 @@ impl RubricPool {
                 message: "worker channel closed".to_string(),
             })?;
 
-        match reply_rx.recv_timeout(SUBMIT_TIMEOUT) {
+        match reply_rx.recv_timeout(self.config.submit_timeout) {
             Ok(result) => result,
             Err(mpsc::RecvTimeoutError::Timeout) => Err(PoolError::Timeout {
                 worker_id,
-                timeout: SUBMIT_TIMEOUT,
+                timeout: self.config.submit_timeout,
             }),
             Err(mpsc::RecvTimeoutError::Disconnected) => Err(PoolError::WorkerCrashed {
                 worker_id,
@@ -198,6 +202,10 @@ impl RubricPool {
             join_handles(handles);
         }
         shared.stats()
+    }
+
+    pub fn stats(&self) -> PoolStats {
+        self.shared.stats()
     }
 
     fn next_live_worker(&self) -> Result<usize, PoolError> {
@@ -345,7 +353,7 @@ impl Worker {
     fn spawn_runtime(&self, options: &RubricOptions) -> Result<WorkerRuntime, PoolError> {
         let codex_home =
             TempDir::new().map_err(|e| PoolError::Spawn(format!("create CODEX_HOME: {e}")))?;
-        seed_codex_home(codex_home.path())?;
+        seed_codex_home(codex_home.path(), self.config.source_codex_home.as_deref())?;
         let mut env = self.config.extra_env.clone();
         env.push((
             OsString::from("CODEX_HOME"),
@@ -357,8 +365,8 @@ impl Worker {
             .effort
             .as_deref()
             .unwrap_or(DEFAULT_CODEX_ACP_REASONING_EFFORT);
-        let mut acp = AcpClient::spawn(&self.config.codex_acp_binary, model, effort, &env)?;
-        acp.start_session()?;
+        let mut acp = AcpClient::spawn(&self.config.codex_acp_binary, model, effort, &env, None)?;
+        acp.start_session(None)?;
 
         Ok(WorkerRuntime {
             acp,
@@ -443,8 +451,11 @@ fn join_handles(handles: Vec<JoinHandle<()>>) {
     }
 }
 
-fn seed_codex_home(worker_home: &Path) -> Result<(), PoolError> {
-    let Some(source_home) = source_codex_home() else {
+fn seed_codex_home(
+    worker_home: &Path,
+    configured_source_home: Option<&Path>,
+) -> Result<(), PoolError> {
+    let Some(source_home) = source_codex_home(configured_source_home) else {
         return Ok(());
     };
     for file_name in [
@@ -469,7 +480,10 @@ fn seed_codex_home(worker_home: &Path) -> Result<(), PoolError> {
     Ok(())
 }
 
-fn source_codex_home() -> Option<PathBuf> {
+fn source_codex_home(configured_source_home: Option<&Path>) -> Option<PathBuf> {
+    if let Some(path) = configured_source_home {
+        return Some(path.to_path_buf());
+    }
     if let Some(path) = std::env::var_os("CODEX_HOME") {
         return Some(PathBuf::from(path));
     }

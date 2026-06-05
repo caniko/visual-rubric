@@ -8,11 +8,11 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result, anyhow, bail};
 use clap::{Parser, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Parser)]
 #[command(name = "visual-rubric")]
@@ -90,6 +90,21 @@ struct AuditArgs {
     /// Browser binary for headless screenshots.
     #[arg(long, env = "VISUAL_RUBRIC_BROWSER", default_value = "chromium")]
     browser: PathBuf,
+    /// Extra argument passed to the browser. May be repeated.
+    #[arg(long = "browser-arg")]
+    browser_args: Vec<String>,
+    /// Delay before each browser capture, in milliseconds.
+    #[arg(long, default_value_t = 0)]
+    wait_ms: u64,
+    /// Device scale factor passed to Chromium.
+    #[arg(long)]
+    device_scale_factor: Option<f32>,
+    /// Number of times to retry a failed browser capture.
+    #[arg(long, default_value_t = 0)]
+    capture_retries: u32,
+    /// Return a non-zero exit when any rubric fails or errors.
+    #[arg(long)]
+    fail_on_rubric: bool,
     /// Viewports as name=WIDTHxHEIGHT. May be repeated.
     #[arg(long = "viewport")]
     viewports: Vec<ViewportArg>,
@@ -126,13 +141,36 @@ struct ViewportArg {
     height: u32,
 }
 
-#[derive(Serialize)]
-struct AuditReport {
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AuditStatus {
+    Pass,
+    Fail,
+    Error,
+    Skipped,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+pub struct AuditReport {
+    pub schema_version: u32,
+    pub aggregate_status: AuditStatus,
     url: String,
+    elapsed_ms: u128,
+    options: AuditOptionsReport,
     screenshots: Vec<ScreenshotReport>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct AuditOptionsReport {
+    question: String,
+    model: Option<String>,
+    effort: Option<String>,
+    system_prompt_provided: bool,
+    skip_ai: bool,
+    fake_pass: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 struct ScreenshotReport {
     name: String,
     width: u32,
@@ -141,7 +179,7 @@ struct ScreenshotReport {
     rubric: RubricReport,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(tag = "status", rename_all = "snake_case")]
 enum RubricReport {
     Pass {
@@ -181,6 +219,7 @@ fn run_image(args: ImageArgs) -> Result<()> {
 }
 
 fn run_audit(args: AuditArgs) -> Result<()> {
+    let started = Instant::now();
     create_clean_dir(&args.screenshots)?;
     let viewports = if args.viewports.is_empty() {
         vec![
@@ -200,11 +239,12 @@ fn run_audit(args: AuditArgs) -> Result<()> {
     };
     let server = StaticServer::start(args.root.clone(), 0)?;
     let url = format!("{}{}", server.base_url(), args.path.trim_start_matches('/'));
+    ensure_hosted_path_ok(&url)?;
     let mut screenshots = Vec::new();
 
     for viewport in viewports {
         let path = args.screenshots.join(format!("{}.png", viewport.name));
-        capture_screenshot(&args.browser, &url, &viewport, &path)?;
+        capture_screenshot(&args, &url, &viewport, &path)?;
         let rubric = if args.fake_pass {
             RubricReport::Pass {
                 reason: "fake pass requested".into(),
@@ -226,7 +266,27 @@ fn run_audit(args: AuditArgs) -> Result<()> {
         });
     }
 
-    write_report(&args.report, &AuditReport { url, screenshots })
+    let aggregate_status = aggregate_status(&screenshots);
+    let report = AuditReport {
+        schema_version: 1,
+        aggregate_status: aggregate_status.clone(),
+        url,
+        elapsed_ms: started.elapsed().as_millis(),
+        options: AuditOptionsReport {
+            question: args.question.clone(),
+            model: args.model.clone(),
+            effort: args.effort.clone(),
+            system_prompt_provided: args.system_prompt.is_some(),
+            skip_ai: args.skip_ai,
+            fake_pass: args.fake_pass,
+        },
+        screenshots,
+    };
+    write_report(&args.report, &report)?;
+    if args.fail_on_rubric && matches!(aggregate_status, AuditStatus::Fail | AuditStatus::Error) {
+        bail!("visual rubric audit finished with aggregate status {aggregate_status:?}");
+    }
+    Ok(())
 }
 
 fn run_serve(args: ServeArgs) -> Result<()> {
@@ -312,13 +372,91 @@ fn write_report(path: &Path, report: &AuditReport) -> Result<()> {
     fs::write(path, json).with_context(|| format!("write {}", path.display()))
 }
 
+fn aggregate_status(screenshots: &[ScreenshotReport]) -> AuditStatus {
+    if screenshots
+        .iter()
+        .any(|screenshot| matches!(screenshot.rubric, RubricReport::Error { .. }))
+    {
+        AuditStatus::Error
+    } else if screenshots
+        .iter()
+        .any(|screenshot| matches!(screenshot.rubric, RubricReport::Fail { .. }))
+    {
+        AuditStatus::Fail
+    } else if screenshots
+        .iter()
+        .all(|screenshot| matches!(screenshot.rubric, RubricReport::Skipped { .. }))
+    {
+        AuditStatus::Skipped
+    } else {
+        AuditStatus::Pass
+    }
+}
+
+fn ensure_hosted_path_ok(url: &str) -> Result<()> {
+    let status = http_status(url).with_context(|| format!("check hosted path {url}"))?;
+    if status != 200 {
+        bail!("hosted path {url} returned HTTP {status}");
+    }
+    Ok(())
+}
+
+fn http_status(url: &str) -> Result<u16> {
+    let rest = url
+        .strip_prefix("http://127.0.0.1:")
+        .context("only local audit URLs are supported")?;
+    let (port, path) = rest
+        .split_once('/')
+        .context("local audit URL missing path")?;
+    let port = port.parse::<u16>().context("local audit URL port")?;
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).context("connect local server")?;
+    write!(
+        stream,
+        "GET /{path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
+    )?;
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .context("read local server response")?;
+    response
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().nth(1))
+        .context("missing HTTP status")?
+        .parse()
+        .context("parse HTTP status")
+}
+
 fn capture_screenshot(
-    browser: &Path,
+    args: &AuditArgs,
     url: &str,
     viewport: &ViewportArg,
     output: &Path,
 ) -> Result<()> {
-    let status = ProcessCommand::new(browser)
+    let mut last_error = None;
+    for attempt in 0..=args.capture_retries {
+        if args.wait_ms > 0 {
+            thread::sleep(Duration::from_millis(args.wait_ms));
+        }
+        match capture_screenshot_once(args, url, viewport, output) {
+            Ok(()) => return Ok(()),
+            Err(error) => last_error = Some(error),
+        }
+        if attempt < args.capture_retries {
+            thread::sleep(Duration::from_millis(100));
+        }
+    }
+    Err(last_error.unwrap_or_else(|| anyhow!("browser capture failed")))
+}
+
+fn capture_screenshot_once(
+    args: &AuditArgs,
+    url: &str,
+    viewport: &ViewportArg,
+    output: &Path,
+) -> Result<()> {
+    let mut command = ProcessCommand::new(&args.browser);
+    command
         .arg("--headless")
         .arg("--disable-gpu")
         .arg("--hide-scrollbars")
@@ -326,15 +464,21 @@ fn capture_screenshot(
         .arg(format!(
             "--window-size={},{}",
             viewport.width, viewport.height
-        ))
+        ));
+    if let Some(scale) = args.device_scale_factor {
+        command.arg(format!("--force-device-scale-factor={scale}"));
+    }
+    command
+        .args(&args.browser_args)
         .arg(format!("--screenshot={}", output.display()))
-        .arg(url)
+        .arg(url);
+    let status = command
         .status()
-        .with_context(|| format!("run browser {}", browser.display()))?;
+        .with_context(|| format!("run browser {}", args.browser.display()))?;
     if !status.success() {
         bail!(
             "browser {} failed for {} with status {status}",
-            browser.display(),
+            args.browser.display(),
             viewport.name
         );
     }
@@ -412,46 +556,60 @@ fn serve_static_request(mut stream: TcpStream, root: &Path) -> Result<()> {
     let mut buf = [0; 2048];
     let n = stream.read(&mut buf).context("read request")?;
     let request = String::from_utf8_lossy(&buf[..n]);
-    let request_path = request
+    let mut request_parts = request
         .lines()
         .next()
-        .and_then(|line| line.split_whitespace().nth(1))
-        .unwrap_or("/");
+        .unwrap_or_default()
+        .split_whitespace();
+    let method = request_parts.next().unwrap_or_default();
+    let request_path = request_parts.next().unwrap_or("/");
+    if method != "GET" && method != "HEAD" {
+        return write_http_response(
+            &mut stream,
+            "405 Method Not Allowed",
+            "text/plain",
+            b"method not allowed",
+            method == "HEAD",
+        );
+    }
     let file = resolve_static_path(root, request_path);
     if let Ok(bytes) = fs::read(&file) {
-        let header = format!(
-            "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        write_http_response(
+            &mut stream,
+            "200 OK",
             content_type(&file),
-            bytes.len()
-        );
-        stream.write_all(header.as_bytes())?;
-        stream.write_all(&bytes)?;
+            &bytes,
+            method == "HEAD",
+        )?;
     } else {
-        let body = b"not found";
-        let header = format!(
-            "HTTP/1.1 404 Not Found\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-            body.len()
-        );
-        stream.write_all(header.as_bytes())?;
-        stream.write_all(body)?;
+        write_http_response(
+            &mut stream,
+            "404 Not Found",
+            "text/plain; charset=utf-8",
+            b"not found",
+            method == "HEAD",
+        )?;
     }
     Ok(())
 }
 
 fn resolve_static_path(root: &Path, request_path: &str) -> PathBuf {
-    let clean = request_path
-        .split('?')
-        .next()
-        .unwrap_or("/")
-        .trim_start_matches('/');
+    let request_path_without_query = request_path.split('?').next().unwrap_or("/");
+    let Some(clean) = percent_decode_path(request_path_without_query) else {
+        return root.join("__invalid__");
+    };
+    let clean = clean.trim_start_matches('/');
     if clean.is_empty() {
         return root.join("index.html");
     }
-    if clean.contains("..") {
+    if clean
+        .split('/')
+        .any(|component| component == "." || component == "..")
+    {
         return root.join("__invalid__");
     }
     let path = root.join(clean);
-    if request_path.ends_with('/') {
+    if request_path_without_query.ends_with('/') {
         path.join("index.html")
     } else {
         path
@@ -461,11 +619,62 @@ fn resolve_static_path(root: &Path, request_path: &str) -> PathBuf {
 fn content_type(path: &Path) -> &'static str {
     match path.extension().and_then(|extension| extension.to_str()) {
         Some("css") => "text/css; charset=utf-8",
+        Some("gif") => "image/gif",
         Some("html") => "text/html; charset=utf-8",
+        Some("ico") => "image/x-icon",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("jpg") | Some("jpeg") => "image/jpeg",
         Some("png") => "image/png",
         Some("svg") => "image/svg+xml",
+        Some("txt") => "text/plain; charset=utf-8",
         Some("webp") => "image/webp",
         _ => "application/octet-stream",
+    }
+}
+
+fn write_http_response(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    body: &[u8],
+    head_only: bool,
+) -> Result<()> {
+    let header = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream.write_all(header.as_bytes())?;
+    if !head_only {
+        stream.write_all(body)?;
+    }
+    Ok(())
+}
+
+fn percent_decode_path(path: &str) -> Option<String> {
+    let bytes = path.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hi = *bytes.get(i + 1)?;
+            let lo = *bytes.get(i + 2)?;
+            decoded.push(hex_value(hi)? * 16 + hex_value(lo)?);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
     }
 }
 
@@ -515,7 +724,7 @@ mod tests {
 
     use clap::Parser as _;
 
-    use super::{Cli, Commands, ImageArgs, PathBuf, run};
+    use super::{AuditReport, AuditStatus, Cli, Commands, ImageArgs, PathBuf, run};
 
     #[test]
     fn parses_custom_system_prompt() {
@@ -549,6 +758,17 @@ mod tests {
         assert!(cli.command.is_none());
         let image: ImageArgs = cli.image.try_into().unwrap();
         assert_eq!(image.image, PathBuf::from("shot.png"));
+    }
+
+    #[test]
+    fn legacy_image_args_require_image_and_question() {
+        let cli = Cli::parse_from(["visual-rubric", "--question", "Is it readable?"]);
+        let err = ImageArgs::try_from(cli.image).unwrap_err();
+        assert!(err.to_string().contains("--image is required"));
+
+        let cli = Cli::parse_from(["visual-rubric", "--image", "shot.png"]);
+        let err = ImageArgs::try_from(cli.image).unwrap_err();
+        assert!(err.to_string().contains("--question is required"));
     }
 
     #[test]
@@ -602,15 +822,187 @@ mod tests {
 
         run(cli).unwrap();
         assert!(screenshots.join("tiny.png").exists());
-        let report = std::fs::read_to_string(report).unwrap();
-        assert!(report.contains("\"status\": \"pass\""));
-        assert!(report.contains("tiny"));
+        let report: AuditReport =
+            serde_json::from_str(&std::fs::read_to_string(report).unwrap()).unwrap();
+        assert_eq!(report.schema_version, 1);
+        assert_eq!(report.aggregate_status, AuditStatus::Pass);
+        assert_eq!(report.screenshots[0].name, "tiny");
+        assert!(matches!(
+            report.screenshots[0].rubric,
+            super::RubricReport::Pass { .. }
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn audit_skip_ai_uses_default_viewports_and_report_contract() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let public = temp.path().join("public");
+        std::fs::create_dir_all(&public).unwrap();
+        std::fs::write(public.join("index.html"), "<h1>Install</h1>").unwrap();
+        let browser = temp.path().join("fake-browser");
+        write_fake_browser(&browser);
+        let report = temp.path().join("report.json");
+        let screenshots = temp.path().join("shots");
+
+        let cli = Cli::parse_from([
+            "visual-rubric",
+            "audit",
+            "--root",
+            public.to_str().unwrap(),
+            "--question",
+            "Does it render?",
+            "--browser",
+            browser.to_str().unwrap(),
+            "--report",
+            report.to_str().unwrap(),
+            "--screenshots",
+            screenshots.to_str().unwrap(),
+            "--skip-ai",
+        ]);
+
+        run(cli).unwrap();
+        let report: AuditReport =
+            serde_json::from_str(&std::fs::read_to_string(report).unwrap()).unwrap();
+        assert_eq!(report.schema_version, 1);
+        assert_eq!(report.aggregate_status, AuditStatus::Skipped);
+        assert_eq!(report.screenshots.len(), 2);
+        assert_eq!(report.screenshots[0].name, "desktop");
+        assert_eq!(report.screenshots[0].width, 1440);
+        assert_eq!(report.screenshots[1].name, "mobile");
+        assert_eq!(report.screenshots[1].width, 390);
+        assert!(matches!(
+            report.screenshots[0].rubric,
+            super::RubricReport::Skipped { .. }
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn audit_preserves_multiple_viewport_order_and_custom_path() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let public = temp.path().join("public");
+        std::fs::create_dir_all(public.join("__audit")).unwrap();
+        std::fs::write(public.join("__audit/install.html"), "<h1>Install</h1>").unwrap();
+        let browser = temp.path().join("fake-browser");
+        write_fake_browser(&browser);
+        let report = temp.path().join("report.json");
+
+        let cli = Cli::parse_from([
+            "visual-rubric",
+            "audit",
+            "--root",
+            public.to_str().unwrap(),
+            "--path",
+            "__audit/install.html",
+            "--question",
+            "Does it render?",
+            "--browser",
+            browser.to_str().unwrap(),
+            "--report",
+            report.to_str().unwrap(),
+            "--skip-ai",
+            "--viewport",
+            "wide=1200x800",
+            "--viewport",
+            "narrow=320x700",
+        ]);
+
+        run(cli).unwrap();
+        let report: AuditReport =
+            serde_json::from_str(&std::fs::read_to_string(report).unwrap()).unwrap();
+        assert!(report.url.ends_with("/__audit/install.html"));
+        assert_eq!(report.screenshots[0].name, "wide");
+        assert_eq!(report.screenshots[1].name, "narrow");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn audit_errors_when_browser_fails_or_writes_no_screenshot() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let public = temp.path().join("public");
+        std::fs::create_dir_all(&public).unwrap();
+        std::fs::write(public.join("index.html"), "<h1>Install</h1>").unwrap();
+        let failing_browser = temp.path().join("failing-browser");
+        write_fake_browser_script(&failing_browser, "#!/usr/bin/env bash\nexit 7\n");
+        let report = temp.path().join("report.json");
+
+        let cli = Cli::parse_from([
+            "visual-rubric",
+            "audit",
+            "--root",
+            public.to_str().unwrap(),
+            "--question",
+            "Does it render?",
+            "--browser",
+            failing_browser.to_str().unwrap(),
+            "--report",
+            report.to_str().unwrap(),
+            "--skip-ai",
+            "--viewport",
+            "tiny=320x240",
+        ]);
+        let err = run(cli).unwrap_err();
+        assert!(err.to_string().contains("browser"));
+
+        let silent_browser = temp.path().join("silent-browser");
+        write_fake_browser_script(&silent_browser, "#!/usr/bin/env bash\nexit 0\n");
+        let cli = Cli::parse_from([
+            "visual-rubric",
+            "audit",
+            "--root",
+            public.to_str().unwrap(),
+            "--question",
+            "Does it render?",
+            "--browser",
+            silent_browser.to_str().unwrap(),
+            "--report",
+            report.to_str().unwrap(),
+            "--skip-ai",
+            "--viewport",
+            "tiny=320x240",
+        ]);
+        let err = run(cli).unwrap_err();
+        assert!(err.to_string().contains("did not write"));
+    }
+
+    #[test]
+    fn static_path_resolution_and_content_types_are_strict() {
+        let root = PathBuf::from("/tmp/site");
+        assert_eq!(
+            super::resolve_static_path(&root, "/"),
+            root.join("index.html")
+        );
+        assert_eq!(
+            super::resolve_static_path(&root, "/docs/?v=1"),
+            root.join("docs").join("index.html")
+        );
+        assert_eq!(
+            super::resolve_static_path(&root, "/assets%2Fapp.js"),
+            root.join("assets").join("app.js")
+        );
+        assert_eq!(
+            super::resolve_static_path(&root, "/%2e%2e/secret.txt"),
+            root.join("__invalid__")
+        );
+        assert_eq!(
+            super::resolve_static_path(&root, "/bad%zz"),
+            root.join("__invalid__")
+        );
+        assert_eq!(
+            super::content_type(&root.join("app.js")),
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(
+            super::content_type(&root.join("data.json")),
+            "application/json; charset=utf-8"
+        );
     }
 
     #[cfg(unix)]
     fn write_fake_browser(path: &std::path::Path) {
-        let mut file = std::fs::File::create(path).unwrap();
-        file.write_all(
+        write_fake_browser_script(
+            path,
             br#"#!/usr/bin/env bash
 set -euo pipefail
 out=
@@ -622,8 +1014,13 @@ done
 test -n "$out"
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=' | base64 -d > "$out"
 "#,
-        )
-        .unwrap();
+        );
+    }
+
+    #[cfg(unix)]
+    fn write_fake_browser_script(path: &std::path::Path, script: impl AsRef<[u8]>) {
+        let mut file = std::fs::File::create(path).unwrap();
+        file.write_all(script.as_ref()).unwrap();
         let mut permissions = std::fs::metadata(path).unwrap().permissions();
         permissions.set_mode(0o755);
         std::fs::set_permissions(path, permissions).unwrap();
