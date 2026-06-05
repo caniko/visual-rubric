@@ -8,11 +8,14 @@ use std::time::Duration;
 use rand::Rng as _;
 use tempfile::TempDir;
 
+mod codex_home;
+
 use crate::{
     AcpClient, DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, DEFAULT_SYSTEM_PROMPT,
     PoolError, RateLimitEvent, RubricOptions, RubricVerdict, default_codex_acp_binary,
     default_options, encode_png, parse_verdict,
 };
+use codex_home::seed_codex_home;
 
 const DEFAULT_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 const RECYCLE_SPAWN_ATTEMPTS: u32 = 2;
@@ -482,43 +485,4 @@ fn join_handles(handles: Vec<JoinHandle<()>>) {
     for handle in handles {
         let _ = handle.join();
     }
-}
-
-fn seed_codex_home(
-    worker_home: &Path,
-    configured_source_home: Option<&Path>,
-) -> Result<(), PoolError> {
-    let Some(source_home) = source_codex_home(configured_source_home) else {
-        return Ok(());
-    };
-    for file_name in [
-        "auth.json",
-        "config.toml",
-        "installation_id",
-        "models_cache.json",
-        "version.json",
-    ] {
-        let source = source_home.join(file_name);
-        if source.exists() {
-            let target = worker_home.join(file_name);
-            std::fs::copy(&source, &target).map_err(|e| {
-                PoolError::Spawn(format!(
-                    "seed worker CODEX_HOME file {} from {}: {e}",
-                    target.display(),
-                    source.display()
-                ))
-            })?;
-        }
-    }
-    Ok(())
-}
-
-fn source_codex_home(configured_source_home: Option<&Path>) -> Option<PathBuf> {
-    if let Some(path) = configured_source_home {
-        return Some(path.to_path_buf());
-    }
-    if let Some(path) = std::env::var_os("CODEX_HOME") {
-        return Some(PathBuf::from(path));
-    }
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".codex"))
 }
