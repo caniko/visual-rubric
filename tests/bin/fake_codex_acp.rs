@@ -23,32 +23,27 @@ fn main() {
                 writeln!(file, "{}", std::env::args().collect::<Vec<_>>().join("\n"))
             });
     }
-    if let Ok(path) = std::env::var("FAKE_CODEX_ACP_CWD_LOG")
-        && let Ok(cwd) = std::env::current_dir()
-    {
-        let _ = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .and_then(|mut file| writeln!(file, "{}", cwd.display()));
+    if let Ok(path) = std::env::var("FAKE_CODEX_ACP_CWD_LOG") {
+        if let Ok(cwd) = std::env::current_dir() {
+            let _ = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .and_then(|mut file| writeln!(file, "{}", cwd.display()));
+        }
     }
-    if let Ok(path) = std::env::var("FAKE_CODEX_ACP_ENV_LOG")
-        && let Ok(key) = std::env::var("FAKE_CODEX_ACP_LOG_ENV_KEY")
-        && let Ok(value) = std::env::var(key)
-    {
-        let _ = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .and_then(|mut file| writeln!(file, "{value}"));
-    } else if let Ok(path) = std::env::var("FAKE_CODEX_ACP_ENV_LOG")
-        && let Ok(value) = std::env::var("FAKE_CODEX_ACP_CUSTOM_ENV")
-    {
-        let _ = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)
-            .and_then(|mut file| writeln!(file, "{value}"));
+    if let Ok(path) = std::env::var("FAKE_CODEX_ACP_ENV_LOG") {
+        let value = std::env::var("FAKE_CODEX_ACP_LOG_ENV_KEY")
+            .ok()
+            .and_then(|key| std::env::var(key).ok())
+            .or_else(|| std::env::var("FAKE_CODEX_ACP_CUSTOM_ENV").ok());
+        if let Some(value) = value {
+            let _ = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .and_then(|mut file| writeln!(file, "{value}"));
+        }
     }
 
     let stdin = std::io::stdin();
@@ -83,14 +78,14 @@ fn main() {
                 let session_id = msg["params"]["sessionId"]
                     .as_str()
                     .unwrap_or("fake-session");
-                if let Ok(path) = std::env::var("FAKE_CODEX_ACP_PROMPT_LOG")
-                    && let Some(prompt) = msg["params"]["prompt"][0]["text"].as_str()
-                {
-                    let _ = OpenOptions::new()
-                        .create(true)
-                        .append(true)
-                        .open(path)
-                        .and_then(|mut file| writeln!(file, "{prompt}"));
+                if let Ok(path) = std::env::var("FAKE_CODEX_ACP_PROMPT_LOG") {
+                    if let Some(prompt) = msg["params"]["prompt"][0]["text"].as_str() {
+                        let _ = OpenOptions::new()
+                            .create(true)
+                            .append(true)
+                            .open(path)
+                            .and_then(|mut file| writeln!(file, "{prompt}"));
+                    }
                 }
                 let chunks: Vec<&str> = match mode.as_str() {
                     "fail" => vec![

@@ -455,10 +455,10 @@ impl AcpClient {
 
             if msg["method"] == "session/update" && msg["params"]["sessionId"] == session_id {
                 let update = &msg["params"]["update"];
-                if update["sessionUpdate"] == "agent_message_chunk"
-                    && let Some(chunk) = update["content"]["text"].as_str()
-                {
-                    text.push_str(chunk);
+                if update["sessionUpdate"] == "agent_message_chunk" {
+                    if let Some(chunk) = update["content"]["text"].as_str() {
+                        text.push_str(chunk);
+                    }
                 }
             }
         }
@@ -545,16 +545,15 @@ fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
         if let Some(seconds) = candidate.as_u64() {
             return Some(std::time::Duration::from_secs(seconds));
         }
-        if let Some(seconds) = candidate.as_f64()
-            && seconds.is_finite()
-            && seconds >= 0.0
-        {
-            return Some(std::time::Duration::from_secs_f64(seconds));
+        if let Some(seconds) = candidate.as_f64() {
+            if seconds.is_finite() && seconds >= 0.0 {
+                return Some(std::time::Duration::from_secs_f64(seconds));
+            }
         }
-        if let Some(value) = candidate.as_str()
-            && let Ok(seconds) = value.parse::<u64>()
-        {
-            return Some(std::time::Duration::from_secs(seconds));
+        if let Some(value) = candidate.as_str() {
+            if let Ok(seconds) = value.parse::<u64>() {
+                return Some(std::time::Duration::from_secs(seconds));
+            }
         }
     }
     None

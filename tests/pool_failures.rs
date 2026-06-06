@@ -145,6 +145,7 @@ exec "$fake" "$@"
         std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
     )
     .expect("write wrapper");
+    drop(file);
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).unwrap();

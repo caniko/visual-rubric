@@ -304,6 +304,7 @@ fn write_fake_browser_script(path: &std::path::Path, script: impl AsRef<[u8]>) {
     let mut file = std::fs::File::create(path).unwrap();
     writeln!(file, "#!{}", test_shell()).unwrap();
     file.write_all(script.as_ref()).unwrap();
+    drop(file);
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).unwrap();

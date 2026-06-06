@@ -33,6 +33,7 @@ pub fn write_fake_browser(path: &std::path::Path, body: &str) {
     let mut file = std::fs::File::create(path).expect("create fake browser");
     writeln!(file, "#!{}", test_shell()).expect("write fake browser shebang");
     file.write_all(body.as_bytes()).expect("write fake browser");
+    drop(file);
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).unwrap();
