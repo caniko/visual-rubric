@@ -46,3 +46,25 @@ fn parse_verdict_rejects_malformed_json() {
     let err = parse_verdict(r#"{"verdict":"pass""#).unwrap_err();
     assert!(err.is_syntax() || err.is_eof());
 }
+
+#[test]
+fn parse_verdict_accepts_structured_anomalies() {
+    let verdict = parse_verdict(
+        r#"{
+            "verdict": "fail",
+            "reason": "needs work",
+            "anomalies": [
+                {
+                    "issue": "Command wraps awkwardly.",
+                    "fix": "Keep commands horizontally scrollable."
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        verdict.anomalies,
+        vec!["Command wraps awkwardly. Fix: Keep commands horizontally scrollable."]
+    );
+}

@@ -30,7 +30,7 @@ pub struct RubricVerdict {
     /// Human-readable reason for the verdict.
     pub reason: String,
     /// Optional anomalies observed in the screenshot.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_anomalies")]
     pub anomalies: Vec<String>,
 }
 
@@ -185,6 +185,35 @@ pub fn evaluate_image_rubric_with_config(
 /// unsupported verdict status.
 pub fn parse_verdict(text: &str) -> Result<RubricVerdict, serde_json::Error> {
     serde_json::from_str(text)
+}
+
+fn deserialize_anomalies<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let values = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    Ok(values.into_iter().map(anomaly_to_string).collect())
+}
+
+fn anomaly_to_string(value: serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(text) => text,
+        serde_json::Value::Object(mut object) => {
+            let issue = object
+                .remove("issue")
+                .and_then(|value| value.as_str().map(str::to_owned));
+            let fix = object
+                .remove("fix")
+                .and_then(|value| value.as_str().map(str::to_owned));
+            match (issue, fix) {
+                (Some(issue), Some(fix)) => format!("{issue} Fix: {fix}"),
+                (Some(issue), None) => issue,
+                (None, Some(fix)) => fix,
+                (None, None) => serde_json::Value::Object(object).to_string(),
+            }
+        }
+        other => other.to_string(),
+    }
 }
 
 /// Converts a verdict into an assertion-style result.
