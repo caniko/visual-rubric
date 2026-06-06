@@ -283,26 +283,33 @@ fn static_path_resolution_and_content_types_are_strict() {
 #[cfg(unix)]
 fn write_fake_browser(path: &std::path::Path) {
     write_fake_browser_script(
-            path,
-            br#"#!/usr/bin/env bash
-set -euo pipefail
+        path,
+        r#"
+set -eu
 out=
-for arg in "$@"; do
-  case "$arg" in
-    --screenshot=*) out="${arg#--screenshot=}" ;;
-  esac
+for arg
+do
+    case "$arg" in
+        --screenshot=*) out="${arg#--screenshot=}" ;;
+    esac
 done
 test -n "$out"
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=' | base64 -d > "$out"
 "#,
-        );
+    );
 }
 
 #[cfg(unix)]
 fn write_fake_browser_script(path: &std::path::Path, script: impl AsRef<[u8]>) {
     let mut file = std::fs::File::create(path).unwrap();
+    writeln!(file, "#!{}", test_shell()).unwrap();
     file.write_all(script.as_ref()).unwrap();
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(path, permissions).unwrap();
+}
+
+#[cfg(unix)]
+fn test_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }

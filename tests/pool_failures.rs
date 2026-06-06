@@ -117,8 +117,8 @@ fn write_stateful_crash_wrapper(path: &std::path::Path, fake: &str, counter: &st
     let mut file = std::fs::File::create(path).expect("wrapper");
     writeln!(
         file,
-        r#"#!/usr/bin/env bash
-set -euo pipefail
+        r#"#!{}
+set -eu
 counter={counter:?}
 fake={fake:?}
 n=0
@@ -133,7 +133,8 @@ else
   export FAKE_CODEX_ACP_MODE=crash
 fi
 exec "$fake" "$@"
-"#
+"#,
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
     )
     .expect("write wrapper");
     let mut permissions = std::fs::metadata(path).unwrap().permissions();

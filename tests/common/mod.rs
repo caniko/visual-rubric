@@ -23,6 +23,7 @@ pub fn write_fake_browser(path: &std::path::Path, body: &str) {
     use std::os::unix::fs::PermissionsExt as _;
 
     let mut file = std::fs::File::create(path).expect("create fake browser");
+    writeln!(file, "#!{}", test_shell()).expect("write fake browser shebang");
     file.write_all(body.as_bytes()).expect("write fake browser");
     let mut permissions = std::fs::metadata(path).unwrap().permissions();
     permissions.set_mode(0o755);
@@ -31,15 +32,21 @@ pub fn write_fake_browser(path: &std::path::Path, body: &str) {
 
 #[cfg(unix)]
 pub fn fake_browser_success_script() -> &'static str {
-    r#"#!/usr/bin/env bash
-set -euo pipefail
+    r#"
+set -eu
 out=
-for arg in "$@"; do
-  case "$arg" in
-    --screenshot=*) out="${arg#--screenshot=}" ;;
-  esac
+for arg
+do
+    case "$arg" in
+        --screenshot=*) out="${arg#--screenshot=}" ;;
+    esac
 done
 test -n "$out"
 printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=' | base64 -d > "$out"
 "#
+}
+
+#[cfg(unix)]
+fn test_shell() -> String {
+    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }
