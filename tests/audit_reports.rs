@@ -5,6 +5,10 @@ use std::process::Command;
 #[cfg(unix)]
 #[test]
 fn audit_report_records_failures_and_fail_on_rubric_exits_nonzero() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let public = temp.path().join("public");
     std::fs::create_dir_all(&public).expect("public");
@@ -24,7 +28,7 @@ fn audit_report_records_failures_and_fail_on_rubric_exits_nonzero() {
         .arg("--report")
         .arg(&report)
         .arg("--codex-acp")
-        .arg(env!("CARGO_BIN_EXE_fake-codex-acp"))
+        .arg(fake)
         .arg("--viewport")
         .arg("tiny=320x240")
         .arg("--fail-on-rubric")
@@ -44,6 +48,10 @@ fn audit_report_records_failures_and_fail_on_rubric_exits_nonzero() {
 #[cfg(unix)]
 #[test]
 fn audit_report_records_rubric_errors_without_failing_by_default() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let public = temp.path().join("public");
     std::fs::create_dir_all(&public).expect("public");
@@ -63,7 +71,7 @@ fn audit_report_records_rubric_errors_without_failing_by_default() {
         .arg("--report")
         .arg(&report)
         .arg("--codex-acp")
-        .arg(env!("CARGO_BIN_EXE_fake-codex-acp"))
+        .arg(fake)
         .arg("--viewport")
         .arg("tiny=320x240")
         .env("FAKE_CODEX_ACP_MODE", "malformed")

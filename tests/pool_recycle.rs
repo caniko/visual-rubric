@@ -8,11 +8,14 @@ use visual_rubric::{PoolConfig, RubricOptions, RubricPool};
 fn pool_recycles_after_prompt_limit() {
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
-    let fake = env!("CARGO_BIN_EXE_fake-codex-acp");
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let pool = RubricPool::new(PoolConfig {
         workers: 2,
         max_prompts_per_worker: 2,
-        codex_acp_binary: fake.into(),
+        codex_acp_binary: fake,
         extra_env: vec![(
             OsString::from("FAKE_CODEX_ACP_MODE"),
             OsString::from("pass"),
@@ -43,10 +46,13 @@ fn pool_uses_custom_system_prompt() {
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
     let prompt_log = temp.path().join("prompts.log");
-    let fake = env!("CARGO_BIN_EXE_fake-codex-acp");
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let pool = RubricPool::new(PoolConfig {
         workers: 1,
-        codex_acp_binary: fake.into(),
+        codex_acp_binary: fake,
         extra_env: vec![
             (
                 OsString::from("FAKE_CODEX_ACP_MODE"),

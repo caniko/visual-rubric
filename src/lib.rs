@@ -184,7 +184,48 @@ pub fn evaluate_image_rubric_with_config(
 /// Returns the underlying JSON error when the text is malformed or contains an
 /// unsupported verdict status.
 pub fn parse_verdict(text: &str) -> Result<RubricVerdict, serde_json::Error> {
-    serde_json::from_str(text)
+    match serde_json::from_str(text) {
+        Ok(verdict) => Ok(verdict),
+        Err(source) => match extract_json_object(text) {
+            Some(json) => serde_json::from_str(json),
+            None => Err(source),
+        },
+    }
+}
+
+fn extract_json_object(text: &str) -> Option<&str> {
+    let start = text.find('{')?;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, character) in text[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match character {
+            '"' => in_string = true,
+            '{' => depth = depth.saturating_add(1),
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    let end = start + offset + character.len_utf8();
+                    return Some(&text[start..end]);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 fn deserialize_anomalies<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>

@@ -7,6 +7,10 @@ use visual_rubric::{PoolConfig, PoolError, RubricOptions, RubricPool};
 
 #[test]
 fn rate_limit_records_retry_after_and_exhausts_retries() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
     let pool = RubricPool::new(PoolConfig {
@@ -14,7 +18,7 @@ fn rate_limit_records_retry_after_and_exhausts_retries() {
         max_retries: 1,
         backoff_base: Duration::ZERO,
         backoff_cap: Duration::ZERO,
-        codex_acp_binary: env!("CARGO_BIN_EXE_fake-codex-acp").into(),
+        codex_acp_binary: fake,
         extra_env: vec![(
             OsString::from("FAKE_CODEX_ACP_MODE"),
             OsString::from("rate_limit"),
@@ -80,13 +84,17 @@ fn spawn_failure_is_reported() {
 #[cfg(unix)]
 #[test]
 fn worker_crash_can_leave_no_live_workers() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
     let wrapper = temp.path().join("stateful-fake-acp");
     let counter = temp.path().join("spawn-count");
     write_stateful_crash_wrapper(
         &wrapper,
-        env!("CARGO_BIN_EXE_fake-codex-acp"),
+        fake.to_str().expect("fake codex path"),
         counter.to_str().unwrap(),
     );
     let pool = RubricPool::new(PoolConfig {
@@ -144,12 +152,16 @@ exec "$fake" "$@"
 
 #[test]
 fn missing_png_path_is_reported() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let missing = temp.path().join("missing.png");
     let pool = RubricPool::new(PoolConfig {
         workers: 1,
         max_retries: 0,
-        codex_acp_binary: env!("CARGO_BIN_EXE_fake-codex-acp").into(),
+        codex_acp_binary: fake,
         extra_env: vec![(
             OsString::from("FAKE_CODEX_ACP_MODE"),
             OsString::from("pass"),
@@ -167,6 +179,10 @@ fn missing_png_path_is_reported() {
 
 #[test]
 fn worker_codex_home_is_seeded_from_source_home() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let source_home = temp.path().join("source-codex");
     std::fs::create_dir(&source_home).expect("source home");
@@ -175,7 +191,7 @@ fn worker_codex_home_is_seeded_from_source_home() {
     let image = common::write_fixture_png(&temp);
     let pool = RubricPool::new(PoolConfig {
         workers: 1,
-        codex_acp_binary: env!("CARGO_BIN_EXE_fake-codex-acp").into(),
+        codex_acp_binary: fake,
         source_codex_home: Some(source_home),
         extra_env: vec![
             (

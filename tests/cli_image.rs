@@ -7,6 +7,10 @@ use visual_rubric::{RubricOptions, RubricRunConfig, evaluate_image_rubric_with_c
 
 #[test]
 fn image_json_outputs_verdict() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
     let output = Command::new(env!("CARGO_BIN_EXE_visual-rubric"))
@@ -16,7 +20,7 @@ fn image_json_outputs_verdict() {
         .arg("--question")
         .arg("Does it pass?")
         .arg("--codex-acp")
-        .arg(env!("CARGO_BIN_EXE_fake-codex-acp"))
+        .arg(fake)
         .arg("--json")
         .env("FAKE_CODEX_ACP_MODE", "pass")
         .output()
@@ -30,6 +34,10 @@ fn image_json_outputs_verdict() {
 
 #[test]
 fn image_fail_verdict_returns_error_without_json() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
     let output = Command::new(env!("CARGO_BIN_EXE_visual-rubric"))
@@ -41,7 +49,7 @@ fn image_fail_verdict_returns_error_without_json() {
         .arg("--name")
         .arg("fixture")
         .arg("--codex-acp")
-        .arg(env!("CARGO_BIN_EXE_fake-codex-acp"))
+        .arg(fake)
         .env("FAKE_CODEX_ACP_MODE", "fail")
         .output()
         .expect("run visual-rubric");
@@ -54,6 +62,10 @@ fn image_fail_verdict_returns_error_without_json() {
 
 #[test]
 fn image_forwards_model_effort_and_system_prompt_to_custom_acp() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
     let args_log = temp.path().join("args.log");
@@ -71,7 +83,7 @@ fn image_forwards_model_effort_and_system_prompt_to_custom_acp() {
         .arg("--effort")
         .arg("high")
         .arg("--codex-acp")
-        .arg(env!("CARGO_BIN_EXE_fake-codex-acp"))
+        .arg(fake)
         .arg("--json")
         .env("FAKE_CODEX_ACP_MODE", "pass")
         .env("FAKE_CODEX_ACP_ARG_LOG", &args_log)
@@ -90,6 +102,10 @@ fn image_forwards_model_effort_and_system_prompt_to_custom_acp() {
 
 #[test]
 fn public_api_accepts_custom_binary_env_and_cwd() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
     let cwd = temp.path().join("cwd");
@@ -102,7 +118,7 @@ fn public_api_accepts_custom_binary_env_and_cwd() {
         "Does it pass?",
         RubricOptions::default(),
         RubricRunConfig {
-            codex_acp_binary: env!("CARGO_BIN_EXE_fake-codex-acp").into(),
+            codex_acp_binary: fake,
             extra_env: vec![
                 (
                     OsString::from("FAKE_CODEX_ACP_MODE"),

@@ -2,6 +2,14 @@
 
 use std::path::PathBuf;
 
+pub fn fake_codex_acp_binary() -> Option<PathBuf> {
+    if !cfg!(feature = "fake-codex-acp") {
+        return None;
+    }
+    let path = option_env!("CARGO_BIN_EXE_fake-codex-acp").map(PathBuf::from)?;
+    path.exists().then_some(path)
+}
+
 pub fn write_fixture_png(dir: &tempfile::TempDir) -> PathBuf {
     let path = dir.path().join("fixture.png");
     std::fs::write(path.as_path(), fixture_png()).expect("write fixture png");

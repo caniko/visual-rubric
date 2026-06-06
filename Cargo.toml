@@ -10,6 +10,9 @@ readme = "README.md"
 keywords = ["visual-testing", "screenshots", "rubric", "codex", "ux"]
 categories = ["development-tools::testing"]
 
+[features]
+fake-codex-acp = []
+
 [dependencies]
 anyhow = "1"
 base64 = "0.22"
@@ -29,4 +32,5 @@ path = "src/main.rs"
 
 [[bin]]
 name = "fake-codex-acp"
-path = "tests/fake_codex_acp/src/main.rs"
+path = "tests/bin/fake_codex_acp.rs"
+required-features = ["fake-codex-acp"]

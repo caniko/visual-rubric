@@ -61,11 +61,13 @@
       };
       devShells.default = craneLib.devShell {
         checks = self.checks.${system};
-        packages = with pkgs; [
-          cargo-nextest
-          pre-commit
-          rust-analyzer
-        ] ++ pre-commit-check.enabledPackages;
+        packages = with pkgs;
+          [
+            cargo-nextest
+            pre-commit
+            rust-analyzer
+          ]
+          ++ pre-commit-check.enabledPackages;
         shellHook = pre-commit-check.shellHook;
       };
     });

@@ -68,3 +68,15 @@ fn parse_verdict_accepts_structured_anomalies() {
         vec!["Command wraps awkwardly. Fix: Keep commands horizontally scrollable."]
     );
 }
+
+#[test]
+fn parse_verdict_accepts_prefixed_json_object() {
+    let verdict = parse_verdict(
+        r#"I will inspect the screenshot first.{"verdict":"pass","reason":"ok","anomalies":[]}"#,
+    )
+    .unwrap();
+
+    assert!(verdict.verdict.is_pass());
+    assert_eq!(verdict.reason, "ok");
+    assert!(verdict.anomalies.is_empty());
+}

@@ -9,11 +9,14 @@ fn quota_exceeded_is_fatal_for_later_submits() {
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
     let spawn_log = temp.path().join("spawns.log");
-    let fake = env!("CARGO_BIN_EXE_fake-codex-acp");
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
     let pool = RubricPool::new(PoolConfig {
         workers: 1,
         max_retries: 0,
-        codex_acp_binary: fake.into(),
+        codex_acp_binary: fake,
         extra_env: vec![(
             OsString::from("FAKE_CODEX_ACP_SPAWN_LOG"),
             spawn_log.as_os_str().to_os_string(),
