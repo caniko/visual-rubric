@@ -181,6 +181,40 @@ fn log_capture_copies_sqlite_wal_and_session_jsonl() {
     );
 }
 
+#[test]
+fn log_capture_copy_error_is_reported() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let source = temp.path().join("tmp");
+    fs::create_dir_all(&source).expect("source dir");
+    fs::write(source.join("logs_1.sqlite"), "sqlite").expect("sqlite");
+    let output_file = temp.path().join("logs");
+    fs::write(&output_file, "not a directory").expect("output file");
+
+    let run = BatchRubricRun::new(BatchRubricConfig {
+        pool: PoolConfig {
+            workers: 1,
+            log_capture: Some(LogCaptureConfig {
+                temp_dir: source,
+                output_dir: output_file,
+                path_mode: LogPathMode::Absolute,
+            }),
+            ..PoolConfig::default()
+        },
+        question: "question".to_owned(),
+        selection_mode: SelectionMode::ChangedOnly,
+        classifier: None,
+    });
+
+    let report = run.run(&[]);
+
+    assert!(report.logs.is_empty());
+    let error = report
+        .log_capture_error
+        .as_deref()
+        .expect("log capture error");
+    assert!(error.contains("copy configured ACP logs"));
+}
+
 struct TestClassifier;
 
 impl IssueClassifier for TestClassifier {

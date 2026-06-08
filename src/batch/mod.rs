@@ -50,6 +50,8 @@ pub struct BatchRubricReport {
     pub options: RubricOptions,
     /// Copied ACP log paths.
     pub logs: Vec<String>,
+    /// Log capture failure, when ACP logs were requested but could not be copied.
+    pub log_capture_error: Option<String>,
     /// Per-asset results, including skipped unchanged/deleted assets.
     pub assets: Vec<AssetRubricReport>,
     /// Optional caller-classified recommendations derived from failed/error assets.
@@ -138,6 +140,7 @@ pub struct IssueRecommendation {
 }
 
 /// Input passed to caller-provided issue classifiers.
+#[derive(Debug)]
 pub struct IssueClassificationInput<'a> {
     /// Failed or errored asset report.
     pub asset: &'a AssetRubricReport,
@@ -163,7 +166,19 @@ pub struct BatchRubricConfig<'a> {
     pub classifier: Option<&'a dyn IssueClassifier>,
 }
 
+impl std::fmt::Debug for BatchRubricConfig<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BatchRubricConfig")
+            .field("pool", &self.pool)
+            .field("question", &self.question)
+            .field("selection_mode", &self.selection_mode)
+            .field("classifier", &self.classifier.map(|_| "<classifier>"))
+            .finish()
+    }
+}
+
 /// Generic batch runner around [`RubricPool`].
+#[derive(Debug)]
 pub struct BatchRubricRun<'a> {
     config: BatchRubricConfig<'a>,
 }
@@ -227,7 +242,16 @@ impl<'a> BatchRubricRun<'a> {
         assets.extend(selected_evaluation.reports);
         assets.extend(skipped_asset_reports(changes, self.config.selection_mode));
         assets.sort_by(|left, right| left.path.cmp(&right.path));
-        let logs = copy_logs_from_config(self.config.pool.log_capture.as_ref()).unwrap_or_default();
+        let (logs, log_capture_error) =
+            match copy_logs_from_config(self.config.pool.log_capture.as_ref()) {
+                Ok(logs) => (logs, None),
+                Err(error) => (
+                    Vec::new(),
+                    Some(format!(
+                        "copy configured ACP logs into batch report: {error}"
+                    )),
+                ),
+            };
         let recommendations = classify_recommendations(self.config.classifier, &assets);
         let aggregate_status = aggregate_status(&assets);
         BatchRubricReport {
@@ -238,6 +262,7 @@ impl<'a> BatchRubricRun<'a> {
             workers: self.config.pool.workers,
             options: self.config.pool.default_options.clone(),
             logs,
+            log_capture_error,
             assets,
             recommendations,
         }
