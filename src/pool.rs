@@ -1,4 +1,5 @@
 use std::ffi::OsString;
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -9,15 +10,16 @@ use rand::Rng as _;
 use tempfile::TempDir;
 
 mod codex_home;
+mod config;
+
+pub use config::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats};
 
 use crate::{
     AcpClient, DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, DEFAULT_SYSTEM_PROMPT,
-    PoolError, RateLimitEvent, RubricOptions, RubricVerdict, default_codex_acp_binary,
-    default_options, encode_png, parse_verdict,
+    PoolError, RateLimitEvent, RubricOptions, RubricVerdict, encode_png, parse_verdict,
 };
 use codex_home::seed_codex_home;
 
-const DEFAULT_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 const RECYCLE_SPAWN_ATTEMPTS: u32 = 2;
 
 /// Reusable worker pool for evaluating screenshot rubrics through Codex ACP.
@@ -29,66 +31,11 @@ pub struct RubricPool {
     shared: Arc<SharedPoolState>,
 }
 
-/// Configuration for a [`RubricPool`].
-#[derive(Clone, Debug)]
-pub struct PoolConfig {
-    /// Number of worker processes to keep alive.
-    pub workers: usize,
-    /// Number of prompts after which a worker is recycled.
-    pub max_prompts_per_worker: u32,
-    /// Number of retries for recoverable worker or rate-limit failures.
-    pub max_retries: u32,
-    /// Initial retry backoff.
-    pub backoff_base: Duration,
-    /// Maximum retry backoff.
-    pub backoff_cap: Duration,
-    /// Options applied when a submitted job omits an override.
-    pub default_options: RubricOptions,
-    /// Path to the `codex-acp` executable.
-    pub codex_acp_binary: PathBuf,
-    /// Extra environment variables for worker processes.
-    pub extra_env: Vec<(OsString, OsString)>,
-    /// Maximum time to wait for one submitted job.
-    pub submit_timeout: Duration,
-    /// Optional Codex home directory to seed into worker-local homes.
-    pub source_codex_home: Option<PathBuf>,
-}
-
-impl Default for PoolConfig {
-    fn default() -> Self {
-        Self {
-            workers: 4,
-            max_prompts_per_worker: 50,
-            max_retries: 4,
-            backoff_base: Duration::from_secs(30),
-            backoff_cap: Duration::from_secs(300),
-            default_options: default_options(),
-            codex_acp_binary: default_codex_acp_binary(),
-            extra_env: Vec::new(),
-            submit_timeout: DEFAULT_SUBMIT_TIMEOUT,
-            source_codex_home: None,
-        }
-    }
-}
-
 struct Job {
     png_path: PathBuf,
     question: String,
     options: RubricOptions,
     reply: mpsc::Sender<Result<RubricVerdict, PoolError>>,
-}
-
-/// Snapshot of pool execution counters.
-#[derive(Clone, Debug, Default)]
-pub struct PoolStats {
-    /// Successfully completed jobs.
-    pub completed: u64,
-    /// Failed jobs.
-    pub failures: u64,
-    /// Rate-limit events observed by workers.
-    pub rate_limit_events: Vec<RateLimitEvent>,
-    /// Number of worker runtime recycles.
-    pub worker_recycles: u64,
 }
 
 #[derive(Default)]
@@ -395,6 +342,18 @@ impl Worker {
             OsString::from("CODEX_HOME"),
             codex_home.path().as_os_str().to_os_string(),
         ));
+        if let Some(log_capture) = &self.config.log_capture {
+            fs::create_dir_all(&log_capture.temp_dir).map_err(|e| {
+                PoolError::Spawn(format!(
+                    "create ACP TMPDIR {}: {e}",
+                    log_capture.temp_dir.display()
+                ))
+            })?;
+            env.push((
+                OsString::from("TMPDIR"),
+                log_capture.temp_dir.as_os_str().to_os_string(),
+            ));
+        }
 
         let model = options.model.as_deref().unwrap_or(DEFAULT_CODEX_ACP_MODEL);
         let effort = options

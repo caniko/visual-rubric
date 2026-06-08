@@ -18,6 +18,9 @@ The crate exposes:
   binary, environment, or working directory.
 - `RubricPool` for repeated checks with process reuse, retry backoff, quota
   detection, and worker recycling.
+- `BatchRubricRun` for caller-provided asset batches with changed-file
+  selection, partial-error reports, ACP log capture, and optional issue
+  classification hooks.
 - `visual-rubric` CLI for image checks, local static hosting, screenshot
   capture, and advisory audit reports.
 
@@ -39,6 +42,28 @@ The same form is available as an explicit subcommand:
 visual-rubric image \
   --image site-desktop.png \
   --question "Does the install section stay readable?"
+```
+
+For generated assets, callers can keep project-specific discovery downstream
+and let the crate own generic batch mechanics:
+
+```rust
+use visual_rubric::{
+    AssetSnapshot, BatchRubricConfig, BatchRubricRun, PoolConfig, SelectionMode,
+    diff_snapshots,
+};
+
+let stable_hash = |bytes: &[u8]| format!("{:x}", bytes.len());
+let before = AssetSnapshot::capture(["before.png"], stable_hash)?;
+let after = AssetSnapshot::capture(["after.png"], stable_hash)?;
+let changes = diff_snapshots(&before, &after);
+let report = BatchRubricRun::new(BatchRubricConfig {
+    pool: PoolConfig::default(),
+    question: "Does this image pass visual QA?".to_owned(),
+    selection_mode: SelectionMode::ChangedOnly,
+    classifier: None,
+})
+.run(&changes);
 ```
 
 For local website iteration, serve a static directory, capture browser
