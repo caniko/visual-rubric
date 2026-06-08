@@ -24,6 +24,11 @@ The crate exposes:
 - `visual-rubric` CLI for image checks, local static hosting, screenshot
   capture, and advisory audit reports.
 
+Feature flags:
+
+- `fake-codex-acp` builds the `fake-codex-acp` test helper binary. It is off by
+  default and does not change the library API.
+
 Project-specific judgment belongs in the caller-provided `system_prompt`; the
 default prompt only covers generic screenshot breakage such as clipped text,
 overlapping controls, blank regions, illegible contrast, and visibly broken
