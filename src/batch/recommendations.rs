@@ -33,7 +33,7 @@ pub(super) fn classify_recommendations(
     let Some(classifier) = classifier else {
         return Vec::new();
     };
-    let mut recommendations = Vec::new();
+    let mut recommendations = Vec::with_capacity(assets.len());
     for asset in assets {
         let Some(issue_text) = issue_text(&asset.result) else {
             continue;
@@ -57,7 +57,9 @@ pub(super) fn classify_recommendations(
 fn issue_text(result: &AssetRubricResult) -> Option<String> {
     match result {
         AssetRubricResult::Fail { reason, anomalies } => {
-            let mut text = reason.clone();
+            let anomaly_len: usize = anomalies.iter().map(String::len).sum();
+            let mut text = String::with_capacity(reason.len() + anomaly_len + anomalies.len());
+            text.push_str(reason);
             for anomaly in anomalies {
                 text.push(' ');
                 text.push_str(anomaly);

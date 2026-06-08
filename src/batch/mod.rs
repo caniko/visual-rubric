@@ -192,7 +192,7 @@ impl<'a> BatchRubricRun<'a> {
     ) -> BatchRubricReport {
         let started_at = unix_timestamp();
         let selected = select_changed(changes, self.config.selection_mode);
-        let mut assets = Vec::new();
+        let mut assets = Vec::with_capacity(changes.len());
         let selected_evaluation = if selected.is_empty() {
             SelectedEvaluation::default()
         } else if let Some(evaluator) = evaluator {
@@ -275,7 +275,7 @@ fn evaluate_selected(
     selected: &[PathBuf],
     question: &str,
 ) -> SelectedEvaluation {
-    let mut reports = Vec::new();
+    let mut reports = Vec::with_capacity(selected.len());
     let mut abort_message = None;
     let mut aborted = false;
     for (index, path) in selected.iter().enumerate() {
@@ -360,7 +360,7 @@ fn skipped_asset_reports(
     changes: &[AssetChange],
     selection_mode: SelectionMode,
 ) -> Vec<AssetRubricReport> {
-    let mut reports = Vec::new();
+    let mut reports = Vec::with_capacity(changes.len());
     for change in changes {
         match (change, selection_mode) {
             (AssetChange::Unchanged(path), SelectionMode::ChangedOnly) => {
