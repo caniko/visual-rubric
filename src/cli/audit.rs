@@ -107,6 +107,7 @@ pub enum RubricReport {
 
 pub(super) fn run_audit(args: AuditArgs) -> Result<()> {
     let started = Instant::now();
+    let question = args.questions.resolve().map_err(|e| anyhow!(e))?;
     create_clean_dir(&args.screenshots)?;
     let viewports = if args.viewports.is_empty() {
         vec![
@@ -142,7 +143,7 @@ pub(super) fn run_audit(args: AuditArgs) -> Result<()> {
                 reason: "AI rubric skipped by flag".into(),
             }
         } else {
-            evaluate_audit_image(&args, &path)
+            evaluate_audit_image(&args, &path, &question)
         };
         screenshots.push(ScreenshotReport {
             name: viewport.name,
@@ -160,7 +161,7 @@ pub(super) fn run_audit(args: AuditArgs) -> Result<()> {
         url,
         elapsed_ms: started.elapsed().as_millis(),
         options: AuditOptionsReport {
-            question: args.question.clone(),
+            question: question.clone(),
             model: args.model.clone(),
             effort: args.effort.clone(),
             system_prompt_provided: args.system_prompt.is_some(),

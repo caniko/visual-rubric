@@ -3,7 +3,9 @@ mod common;
 use std::ffi::OsString;
 use std::process::Command;
 
-use visual_rubric::{RubricOptions, RubricRunConfig, evaluate_image_rubric_with_config};
+use visual_rubric::{
+    RubricOptions, RubricRunConfig, build_codex_acp_args, evaluate_image_rubric_with_config,
+};
 
 #[test]
 fn image_json_outputs_verdict() {
@@ -119,6 +121,7 @@ fn public_api_accepts_custom_binary_env_and_cwd() {
         RubricOptions::default(),
         RubricRunConfig {
             codex_acp_binary: fake,
+            acp_args: build_codex_acp_args("gpt-5.4-mini", "medium"),
             extra_env: vec![
                 (
                     OsString::from("FAKE_CODEX_ACP_MODE"),

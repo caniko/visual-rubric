@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use rand::Rng as _;
+use rand::RngExt as _;
 use tempfile::TempDir;
 
 mod codex_home;
@@ -16,7 +16,8 @@ pub use config::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats};
 
 use crate::{
     AcpClient, DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, DEFAULT_SYSTEM_PROMPT,
-    PoolError, RateLimitEvent, RubricOptions, RubricVerdict, encode_png, parse_verdict,
+    PoolError, RateLimitEvent, RubricOptions, RubricVerdict, build_codex_acp_args, encode_png,
+    parse_verdict,
 };
 use codex_home::seed_codex_home;
 
@@ -360,7 +361,8 @@ impl Worker {
             .effort
             .as_deref()
             .unwrap_or(DEFAULT_CODEX_ACP_REASONING_EFFORT);
-        let mut acp = AcpClient::spawn(&self.config.codex_acp_binary, model, effort, &env, None)?;
+        let acp_args = build_codex_acp_args(model, effort);
+        let mut acp = AcpClient::spawn(&self.config.codex_acp_binary, &acp_args, &env, None)?;
         acp.start_session(None)?;
 
         Ok(WorkerRuntime {

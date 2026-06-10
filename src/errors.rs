@@ -2,7 +2,7 @@ use std::fmt;
 use std::time::Duration;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-/// One observed Codex ACP rate-limit event.
+/// One observed ACP rate-limit event.
 pub struct RateLimitEvent {
     /// Worker that observed the rate limit.
     pub worker_id: usize,
@@ -14,19 +14,19 @@ pub struct RateLimitEvent {
     pub retry_after: Option<Duration>,
 }
 
-/// Errors produced by the Codex ACP pool and worker runtime.
+/// Errors produced by the ACP pool, worker runtime, or vision API.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PoolError {
-    /// Failed to spawn or initialize Codex ACP.
+    /// Failed to spawn or initialize ACP.
     Spawn(String),
     /// JSON-RPC request or response failure.
     Rpc(String),
-    /// Codex ACP reported a rate limit.
+    /// ACP reported a rate limit.
     RateLimited {
         /// Server-provided retry delay, when present.
         retry_after: Option<Duration>,
     },
-    /// Codex ACP reported exhausted usage quota.
+    /// ACP reported exhausted usage quota.
     QuotaExceeded,
     /// A worker process or thread crashed.
     WorkerCrashed {
@@ -48,21 +48,23 @@ pub enum PoolError {
     NoLiveWorkers,
     /// The pool has been closed.
     Closed,
+    /// Vision API HTTP call failed.
+    VisionApi(String),
 }
 
 impl fmt::Display for PoolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Spawn(message) => write!(f, "spawn codex-acp: {message}"),
-            Self::Rpc(message) => write!(f, "codex-acp rpc error: {message}"),
+            Self::Spawn(message) => write!(f, "spawn acp: {message}"),
+            Self::Rpc(message) => write!(f, "acp rpc error: {message}"),
             Self::RateLimited { retry_after } => {
-                write!(f, "codex-acp rate limited")?;
+                write!(f, "acp rate limited")?;
                 if let Some(retry_after) = retry_after {
                     write!(f, " retry_after={retry_after:?}")?;
                 }
                 Ok(())
             }
-            Self::QuotaExceeded => write!(f, "codex-acp usage quota exceeded"),
+            Self::QuotaExceeded => write!(f, "acp usage quota exceeded"),
             Self::WorkerCrashed { worker_id, message } => {
                 write!(f, "rubric worker {worker_id} crashed: {message}")
             }
@@ -72,6 +74,7 @@ impl fmt::Display for PoolError {
             }
             Self::NoLiveWorkers => write!(f, "no live rubric workers"),
             Self::Closed => write!(f, "rubric pool is closed"),
+            Self::VisionApi(message) => write!(f, "vision api error: {message}"),
         }
     }
 }
@@ -89,7 +92,7 @@ pub enum RubricError {
         /// Underlying filesystem error.
         source: std::io::Error,
     },
-    /// Codex ACP pool or worker failure.
+    /// ACP pool or worker failure.
     Pool(PoolError),
     /// Model output could not be parsed as a rubric verdict.
     ParseVerdict {

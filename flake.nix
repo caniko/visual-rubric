@@ -2,22 +2,33 @@
   description = "Rust project";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    crane.url = "github:ipetkov/crane";
-    flake-utils.url = "github:numtide/flake-utils";
+    rs-harbor = {
+      url = "git+https://codeberg.org/caniko/rs-harbor.git";
+    };
+
+    nixpkgs.follows = "rs-harbor/nixpkgs";
+    rust-overlay.follows = "rs-harbor/rust-overlay";
+    crane.follows = "rs-harbor/crane";
+    flake-utils.follows = "rs-harbor/flake-utils";
+
     treefmt-nix.url = "github:numtide/treefmt-nix";
     git-hooks.url = "github:cachix/git-hooks.nix";
+    plinth = {
+      url = "git+https://codeberg.org/caniko/plinth.git?ref=refs/heads/trunk";
+      inputs.nixpkgs.follows = "nixpkgs";
+      inputs.flake-utils.follows = "flake-utils";
+    };
   };
 
   outputs = {
     self,
     nixpkgs,
-    rust-overlay,
-    crane,
+    rs-harbor,
     flake-utils,
+    rust-overlay,
     treefmt-nix,
     git-hooks,
+    plinth,
     ...
   }:
     flake-utils.lib.eachDefaultSystem (system: let
@@ -26,10 +37,15 @@
         overlays = [(import rust-overlay)];
       };
 
-      rustToolchain = pkgs.rust-bin.stable.latest.default.override {
+      toolchain = rs-harbor.lib.mkToolchain {
+        inherit pkgs;
+        channel = "stable";
         extensions = ["rustfmt" "clippy"];
+        withRustAnalyzer = false;
+        crossTargets = [];
       };
-      craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
+      inherit (toolchain) craneLib;
+
       src = craneLib.cleanCargoSource ./.;
       commonArgs = {
         inherit src;
@@ -37,17 +53,29 @@
       };
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       package = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;});
+      website = plinth.lib.${system}.mkProjectSite {
+        pname = "visual-rubric-website";
+        domain = "visual-rubric.tartanoglu.com";
+        configPath = ./website/plinth-project.toml;
+      };
       treefmtEval = treefmt-nix.lib.evalModule pkgs (import ./nix/treefmt.nix);
       pre-commit-check = git-hooks.lib.${system}.run {
         src = ./.;
         hooks = import ./nix/pre-commit.nix {
           inherit pkgs;
           treefmtWrapper = treefmtEval.config.build.wrapper;
-          inherit rustToolchain;
+          rustToolchain = toolchain.rustToolchain;
         };
       };
     in {
-      packages.default = package;
+      packages = {
+        default = package;
+        website = website;
+        site = website;
+      };
+      apps.deploy-pages = plinth.lib.${system}.mkDeployPagesApp {
+        domain = "visual-rubric.tartanoglu.com";
+      };
       formatter = treefmtEval.config.build.wrapper;
       checks = {
         default = package;

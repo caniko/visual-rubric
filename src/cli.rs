@@ -2,10 +2,14 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result, anyhow};
-use clap::{Parser, Subcommand};
+use anyhow::{Context as _, Result, anyhow, bail};
+use clap::{Args, Parser, Subcommand};
+
+use crate::presets::PresetError;
 
 mod audit;
+pub mod configured;
+pub mod pipeline;
 mod static_server;
 #[cfg(test)]
 mod tests;
@@ -36,6 +40,19 @@ enum Commands {
     Audit(AuditArgs),
     /// Serve a local static directory for manual browser testing.
     Serve(ServeArgs),
+    /// Two-stage pipeline: vision model → rubric model.
+    ///
+    /// Stage 1 sends the screenshot to an OpenAI-compatible vision API
+    /// (e.g. Qwen VL via llama-swap) producing structured JSON.
+    /// Stage 2 sends that description to an ACP backend (opencode with
+    /// DeepSeek V4, or codex-acp) for the final rubric verdict.
+    Pipeline(pipeline::PipelineArgs),
+    /// Pipeline configured via environment variables (set by HM module).
+    ///
+    /// Reads all configuration from `VISUAL_RUBRIC_*` env vars so the
+    /// user only needs `--image` and `--question`. CLI flags override
+    /// individual env vars for one-off testing.
+    Configured(configured::ConfiguredArgs),
 }
 
 #[derive(Clone, Debug, Parser)]
@@ -44,6 +61,8 @@ struct LegacyImageArgs {
     image: Option<PathBuf>,
     #[arg(long)]
     question: Option<String>,
+    #[arg(long)]
+    preset: Option<String>,
     #[arg(long)]
     system_prompt: Option<String>,
     #[arg(long)]
@@ -62,8 +81,8 @@ struct LegacyImageArgs {
 struct ImageArgs {
     #[arg(long)]
     image: PathBuf,
-    #[arg(long)]
-    question: String,
+    #[command(flatten)]
+    questions: QuestionSource,
     #[arg(long)]
     system_prompt: Option<String>,
     #[arg(long)]
@@ -113,8 +132,8 @@ struct AuditArgs {
     /// Viewports as name=WIDTHxHEIGHT. May be repeated.
     #[arg(long = "viewport")]
     viewports: Vec<ViewportArg>,
-    #[arg(long)]
-    question: String,
+    #[command(flatten)]
+    questions: QuestionSource,
     #[arg(long)]
     system_prompt: Option<String>,
     #[arg(long)]
@@ -146,16 +165,56 @@ struct ViewportArg {
     height: u32,
 }
 
+/// Source of the rubric question: either an explicit `--question` string
+/// or a named `--preset`.  At least one of the two must be provided.
+#[derive(Clone, Debug, Args)]
+pub struct QuestionSource {
+    /// Explicit rubric question (required if --preset is not set).
+    #[arg(long, required_unless_present = "preset")]
+    pub question: Option<String>,
+
+    /// Named question preset (required if --question is not set).
+    #[arg(long, required_unless_present = "question")]
+    pub preset: Option<String>,
+}
+
+impl QuestionSource {
+    /// Build a source from an already-known question string (no preset).
+    pub fn from_question(question: String) -> Self {
+        Self {
+            question: Some(question),
+            preset: None,
+        }
+    }
+
+    /// Resolves the effective question text.
+    ///
+    /// When `--preset` was provided, delegates to [`crate::presets::resolve`].
+    /// When `--question` was provided, returns it verbatim.
+    pub fn resolve(&self) -> Result<String, PresetError> {
+        match (&self.preset, &self.question) {
+            (Some(name), _) => {
+                let questions = crate::presets::resolve(name)?;
+                Ok(questions.join("\n"))
+            }
+            (None, Some(q)) => Ok(q.clone()),
+            (None, None) => unreachable!("clap enforces at least one of --question or --preset"),
+        }
+    }
+}
+
 /// Runs a parsed CLI command.
 ///
 /// # Errors
 ///
-/// Returns command, IO, browser, Codex ACP, or rubric audit failures.
+/// Returns command, IO, browser, ACP, or rubric audit failures.
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         Some(Commands::Image(args)) => run_image(args),
         Some(Commands::Audit(args)) => run_audit(args),
         Some(Commands::Serve(args)) => run_serve(args),
+        Some(Commands::Pipeline(args)) => pipeline::run_pipeline(args),
+        Some(Commands::Configured(args)) => configured::run_configured(args),
         None => run_image(cli.image.try_into()?),
     }
 }
@@ -178,6 +237,7 @@ fn run_serve(args: ServeArgs) -> Result<()> {
 }
 
 fn evaluate_image(args: &ImageArgs) -> Result<crate::RubricVerdict> {
+    let question = args.questions.resolve().map_err(|e| anyhow!(e))?;
     let options = crate::RubricOptions {
         model: args.model.clone(),
         effort: args.effort.clone().map(Into::into),
@@ -190,11 +250,11 @@ fn evaluate_image(args: &ImageArgs) -> Result<crate::RubricVerdict> {
             default_options: merge_with_defaults(options),
             ..crate::PoolConfig::default()
         })?;
-        let verdict = pool.submit(&args.image, &args.question, crate::RubricOptions::default())?;
+        let verdict = pool.submit(&args.image, &question, crate::RubricOptions::default())?;
         let _ = pool.shutdown();
         Ok(verdict)
     } else {
-        crate::evaluate_image_rubric_with_options(&args.image, &args.question, options)
+        crate::evaluate_image_rubric_with_options(&args.image, &question, options)
             .map_err(|error| anyhow!(error))
     }
 }
@@ -217,9 +277,19 @@ impl TryFrom<LegacyImageArgs> for ImageArgs {
     type Error = anyhow::Error;
 
     fn try_from(value: LegacyImageArgs) -> Result<Self> {
+        let questions = match (value.question, value.preset) {
+            (Some(q), _) => QuestionSource::from_question(q),
+            (None, Some(preset)) => QuestionSource {
+                question: None,
+                preset: Some(preset),
+            },
+            (None, None) => {
+                anyhow::bail!("either --question or --preset is required");
+            }
+        };
         Ok(Self {
             image: value.image.context("--image is required")?,
-            question: value.question.context("--question is required")?,
+            questions,
             system_prompt: value.system_prompt,
             model: value.model,
             effort: value.effort,

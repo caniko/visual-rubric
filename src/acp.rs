@@ -16,17 +16,13 @@ pub(crate) struct AcpClient {
 impl AcpClient {
     pub(crate) fn spawn(
         binary: &Path,
-        model: &str,
-        effort: &str,
+        args: &[String],
         extra_env: &[(OsString, OsString)],
         cwd: Option<&Path>,
     ) -> Result<Self, PoolError> {
         let mut command = Command::new(binary);
         command
-            .arg("-c")
-            .arg(format!("model=\"{model}\""))
-            .arg("-c")
-            .arg(format!("model_reasoning_effort=\"{effort}\""))
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -43,11 +39,11 @@ impl AcpClient {
         let stdin = child
             .stdin
             .take()
-            .ok_or_else(|| PoolError::Spawn("codex-acp stdin unavailable".to_string()))?;
+            .ok_or_else(|| PoolError::Spawn("acp stdin unavailable".to_string()))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| PoolError::Spawn("codex-acp stdout unavailable".to_string()))?;
+            .ok_or_else(|| PoolError::Spawn("acp stdout unavailable".to_string()))?;
 
         Ok(Self {
             child,
@@ -120,6 +116,24 @@ impl AcpClient {
         )
     }
 
+    pub(crate) fn prompt_text(&mut self, prompt: &str) -> Result<String, PoolError> {
+        let session_id = self
+            .session_id
+            .clone()
+            .ok_or_else(|| PoolError::Rpc("session not initialized".to_string()))?;
+        let prompt_id = self.claim_id();
+        self.prompt(
+            prompt_id,
+            &session_id,
+            serde_json::json!({
+                "sessionId": session_id,
+                "prompt": [
+                    { "type": "text", "text": prompt }
+                ]
+            }),
+        )
+    }
+
     fn claim_id(&mut self) -> i64 {
         let id = self.next_id;
         self.next_id += 1;
@@ -177,13 +191,13 @@ impl AcpClient {
             "params": params,
         });
         serde_json::to_writer(&mut self.stdin, &msg)
-            .map_err(|e| PoolError::Rpc(format!("write codex-acp request: {e}")))?;
+            .map_err(|e| PoolError::Rpc(format!("write acp request: {e}")))?;
         self.stdin
             .write_all(b"\n")
-            .map_err(|e| PoolError::Rpc(format!("write codex-acp newline: {e}")))?;
+            .map_err(|e| PoolError::Rpc(format!("write acp newline: {e}")))?;
         self.stdin
             .flush()
-            .map_err(|e| PoolError::Rpc(format!("flush codex-acp request: {e}")))
+            .map_err(|e| PoolError::Rpc(format!("flush acp request: {e}")))
     }
 
     fn read_message(&mut self) -> Result<serde_json::Value, PoolError> {
@@ -191,7 +205,7 @@ impl AcpClient {
         let n = self
             .stdout
             .read_line(&mut line)
-            .map_err(|e| PoolError::Rpc(format!("read codex-acp response: {e}")))?;
+            .map_err(|e| PoolError::Rpc(format!("read acp response: {e}")))?;
         if n == 0 {
             let stderr = self
                 .child
@@ -205,12 +219,12 @@ impl AcpClient {
                 .unwrap_or_default();
             return Err(PoolError::WorkerCrashed {
                 worker_id: usize::MAX,
-                message: format!("codex-acp exited before response: {stderr}"),
+                message: format!("acp exited before response: {stderr}"),
             });
         }
 
         serde_json::from_str(&line)
-            .map_err(|e| PoolError::Rpc(format!("parse codex-acp message {line:?}: {e}")))
+            .map_err(|e| PoolError::Rpc(format!("parse acp message {line:?}: {e}")))
     }
 }
 
@@ -232,7 +246,7 @@ fn rpc_result(msg: serde_json::Value) -> Result<serde_json::Value, PoolError> {
                 retry_after: parse_retry_after(error),
             })
         } else {
-            Err(PoolError::Rpc(format!("codex-acp rpc error: {error}")))
+            Err(PoolError::Rpc(format!("acp rpc error: {error}")))
         }
     } else {
         Ok(msg["result"].clone())
@@ -262,4 +276,15 @@ fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
         }
     }
     None
+}
+
+/// Builds the default CLI arguments for the codex-acp binary from a model
+/// name and reasoning effort.
+pub fn build_codex_acp_args(model: &str, effort: &str) -> Vec<String> {
+    vec![
+        "-c".to_string(),
+        format!("model=\"{model}\""),
+        "-c".to_string(),
+        format!("model_reasoning_effort=\"{effort}\""),
+    ]
 }

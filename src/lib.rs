@@ -2,6 +2,9 @@
 //!
 //! This crate owns the Codex ACP plumbing so browser screenshots, offscreen
 //! renderer captures, and VM/VNC screenshots can use one rubric path.
+//!
+//! It also provides a two-stage pipeline: vision model extraction via an
+//! OpenAI-compatible HTTP API, then rubric scoring via ACP.
 #![warn(missing_docs)]
 
 mod acp;
@@ -9,7 +12,9 @@ mod batch;
 pub mod cli;
 mod errors;
 mod pool;
+pub mod presets;
 mod typed_strings;
+pub mod vision;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -18,7 +23,9 @@ use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
 use acp::AcpClient;
+use vision::VisionApiConfig;
 
+pub use acp::build_codex_acp_args;
 pub use batch::{
     AggregateStatus, AssetChange, AssetRubricReport, AssetRubricResult, AssetSnapshot,
     BatchRubricConfig, BatchRubricReport, BatchRubricRun, IssueClassificationInput,
@@ -31,7 +38,7 @@ pub use pool::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats, RubricPool}
 pub use typed_strings::{RubricEffort, RubricVerdictStatus};
 
 #[derive(Debug, Deserialize, Serialize)]
-/// Parsed rubric verdict returned by Codex ACP.
+/// Parsed rubric verdict returned by ACP.
 pub struct RubricVerdict {
     /// Machine-readable pass/fail status.
     pub verdict: RubricVerdictStatus,
@@ -45,7 +52,7 @@ pub struct RubricVerdict {
 /// Optional model settings for one rubric request.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct RubricOptions {
-    /// Codex model override.
+    /// ACP model override.
     pub model: Option<String>,
     /// Reasoning effort override.
     pub effort: Option<RubricEffort>,
@@ -53,14 +60,18 @@ pub struct RubricOptions {
     pub system_prompt: Option<String>,
 }
 
-/// Runtime configuration for direct Codex ACP calls.
+/// Runtime configuration for direct ACP calls.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RubricRunConfig {
-    /// Path to the `codex-acp` executable.
+    /// Path to the ACP binary (e.g. `codex-acp` or `opencode`).
     pub codex_acp_binary: PathBuf,
+    /// Extra CLI arguments for the ACP binary.
+    /// Defaults to `["-c", "model=...", "-c", "model_reasoning_effort=..."]`
+    /// for codex-acp. For opencode use `["acp"]`.
+    pub acp_args: Vec<String>,
     /// Extra environment variables for the child process.
     pub extra_env: Vec<(OsString, OsString)>,
-    /// Working directory passed to Codex ACP.
+    /// Working directory passed to ACP.
     pub cwd: Option<PathBuf>,
 }
 
@@ -68,6 +79,10 @@ impl Default for RubricRunConfig {
     fn default() -> Self {
         Self {
             codex_acp_binary: default_codex_acp_binary(),
+            acp_args: build_codex_acp_args(
+                DEFAULT_CODEX_ACP_MODEL,
+                DEFAULT_CODEX_ACP_REASONING_EFFORT,
+            ),
             extra_env: Vec::new(),
             cwd: None,
         }
@@ -89,6 +104,16 @@ unless they make the UI worse by the criteria above.";
 pub const DEFAULT_CODEX_ACP_MODEL: &str = "gpt-5.4-mini";
 /// Default Codex ACP reasoning effort.
 pub const DEFAULT_CODEX_ACP_REASONING_EFFORT: &str = "medium";
+
+/// Default prompt for the vision extraction stage.
+///
+/// Asks the vision model to describe the screenshot as structured JSON
+/// so a text-only rubric model (e.g. DeepSeek V4 via opencode) can score it.
+pub const DEFAULT_VISION_PROMPT: &str = "\
+You are a UI description engine. Given a screenshot, produce a structured JSON \
+description of all visible user interface elements, their text content, layout, \
+and any visual issues (clipping, overlap, blank regions, contrast problems). \
+Output ONLY valid JSON with no additional text.";
 
 /// Returns the default rubric options.
 #[must_use]
@@ -121,7 +146,7 @@ pub fn encode_png(png_path: &Path) -> Result<String, PoolError> {
 ///
 /// # Errors
 ///
-/// Returns [`RubricError`] for PNG IO, Codex ACP, JSON parsing, or failed
+/// Returns [`RubricError`] for PNG IO, ACP, JSON parsing, or failed
 /// assertion errors.
 pub fn assert_image_rubric(png_path: &Path, name: &str, question: &str) -> Result<(), RubricError> {
     let verdict = evaluate_image_rubric(png_path, question)?;
@@ -132,7 +157,7 @@ pub fn assert_image_rubric(png_path: &Path, name: &str, question: &str) -> Resul
 ///
 /// # Errors
 ///
-/// Returns [`RubricError`] for PNG IO, Codex ACP, or verdict parsing failures.
+/// Returns [`RubricError`] for PNG IO, ACP, or verdict parsing failures.
 pub fn evaluate_image_rubric(
     png_path: &Path,
     question: &str,
@@ -144,7 +169,7 @@ pub fn evaluate_image_rubric(
 ///
 /// # Errors
 ///
-/// Returns [`RubricError`] for PNG IO, Codex ACP, or verdict parsing failures.
+/// Returns [`RubricError`] for PNG IO, ACP, or verdict parsing failures.
 pub fn evaluate_image_rubric_with_options(
     png_path: &Path,
     question: &str,
@@ -157,7 +182,7 @@ pub fn evaluate_image_rubric_with_options(
 ///
 /// # Errors
 ///
-/// Returns [`RubricError`] for PNG IO, Codex ACP, or verdict parsing failures.
+/// Returns [`RubricError`] for PNG IO, ACP, or verdict parsing failures.
 pub fn evaluate_image_rubric_with_config(
     png_path: &Path,
     question: &str,
@@ -181,6 +206,59 @@ pub fn evaluate_image_rubric_with_config(
             .unwrap_or(DEFAULT_SYSTEM_PROMPT),
         &config,
     )?;
+
+    parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
+}
+
+/// Two-stage pipeline evaluation: vision model → rubric model.
+///
+/// Stage 1: Sends the screenshot to an OpenAI-compatible vision API and
+/// returns a structured JSON description.
+///
+/// Stage 2: Sends the structured description (plus the rubric question) to
+/// the configured ACP backend for the final rubric verdict.
+///
+/// # Errors
+///
+/// Returns [`RubricError`] for PNG IO, vision API, ACP, or verdict parsing
+/// failures.
+pub fn evaluate_image_rubric_pipeline(
+    png_path: &Path,
+    question: &str,
+    vision_config: &VisionApiConfig,
+    vision_prompt: &str,
+    rubric_options: &RubricOptions,
+    rubric_config: &RubricRunConfig,
+) -> Result<RubricVerdict, RubricError> {
+    let bytes = std::fs::read(png_path).map_err(|source| RubricError::ReadPng {
+        path: png_path.to_path_buf(),
+        source,
+    })?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+    let structured = vision::call_vision_api(&b64, vision_prompt, vision_config)
+        .map_err(|e| RubricError::Pool(e))?;
+
+    let system_prompt = rubric_options
+        .system_prompt
+        .as_deref()
+        .unwrap_or(DEFAULT_SYSTEM_PROMPT);
+    let rubric_prompt =
+        format!("{system_prompt}\n\nUI description:\n{structured}\n\nQuestion: {question}");
+
+    let mut acp = AcpClient::spawn(
+        &rubric_config.codex_acp_binary,
+        &rubric_config.acp_args,
+        &rubric_config.extra_env,
+        rubric_config.cwd.as_deref(),
+    )
+    .map_err(|e| RubricError::Pool(e))?;
+    acp.start_session(rubric_config.cwd.as_deref())
+        .map_err(|e| RubricError::Pool(e))?;
+
+    let text = acp
+        .prompt_text(&rubric_prompt)
+        .map_err(|e| RubricError::Pool(e))?;
 
     parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
 }
@@ -286,7 +364,7 @@ pub fn assert_verdict(name: &str, verdict: RubricVerdict) -> Result<(), RubricEr
 ///
 /// # Errors
 ///
-/// Returns command parsing, IO, Codex ACP, or audit failures as [`anyhow::Error`].
+/// Returns command parsing, IO, ACP, or audit failures as [`anyhow::Error`].
 pub fn run(cli: Cli) -> anyhow::Result<()> {
     cli::run(cli)
 }
@@ -299,10 +377,10 @@ fn run_codex_acp_rubric(
     system_prompt: &str,
     config: &RubricRunConfig,
 ) -> Result<String, PoolError> {
+    let args = acp::build_codex_acp_args(model, effort);
     let mut acp = AcpClient::spawn(
         &config.codex_acp_binary,
-        model,
-        effort,
+        &args,
         &config.extra_env,
         config.cwd.as_deref(),
     )?;
