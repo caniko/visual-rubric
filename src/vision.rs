@@ -88,3 +88,25 @@ pub fn call_vision_api(
 
     Ok(content)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vision_api_rejects_bad_url() {
+        let config = VisionApiConfig {
+            url: "http://127.0.0.1:1".to_string(),
+            model: "test-model".to_string(),
+            api_key: None,
+        };
+        let result = call_vision_api("fake-base64", "test question", &config);
+        assert!(result.is_err(), "expected error for unreachable port");
+        match result {
+            Err(PoolError::VisionApi(msg)) => {
+                assert!(!msg.is_empty(), "error message should not be empty");
+            }
+            other => panic!("expected VisionApi error, got {other:?}"),
+        }
+    }
+}
