@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result, anyhow, bail};
+use anyhow::{Context as _, Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 
 use crate::presets::PresetError;

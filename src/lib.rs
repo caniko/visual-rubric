@@ -237,7 +237,7 @@ pub fn evaluate_image_rubric_pipeline(
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
 
     let structured = vision::call_vision_api(&b64, vision_prompt, vision_config)
-        .map_err(|e| RubricError::Pool(e))?;
+        .map_err(RubricError::Pool)?;
 
     let system_prompt = rubric_options
         .system_prompt
@@ -252,13 +252,13 @@ pub fn evaluate_image_rubric_pipeline(
         &rubric_config.extra_env,
         rubric_config.cwd.as_deref(),
     )
-    .map_err(|e| RubricError::Pool(e))?;
+    .map_err(RubricError::Pool)?;
     acp.start_session(rubric_config.cwd.as_deref())
-        .map_err(|e| RubricError::Pool(e))?;
+        .map_err(RubricError::Pool)?;
 
     let text = acp
         .prompt_text(&rubric_prompt)
-        .map_err(|e| RubricError::Pool(e))?;
+        .map_err(RubricError::Pool)?;
 
     parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
 }

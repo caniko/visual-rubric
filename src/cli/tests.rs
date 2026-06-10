@@ -49,7 +49,39 @@ fn legacy_image_args_require_image_and_question() {
 
     let cli = Cli::parse_from(["visual-rubric", "--image", "shot.png"]);
     let err = ImageArgs::try_from(cli.image).unwrap_err();
-    assert!(err.to_string().contains("--question is required"));
+    assert!(err.to_string().contains("--question or --preset is required"));
+}
+
+#[test]
+fn parses_preset_flag_on_image_command() {
+    let cli = Cli::parse_from([
+        "visual-rubric",
+        "image",
+        "--image",
+        "shot.png",
+        "--preset",
+        "ux-consistency",
+    ]);
+    let Some(Commands::Image(image)) = cli.command else {
+        panic!("expected image command");
+    };
+    assert_eq!(image.questions.preset.as_deref(), Some("ux-consistency"));
+    assert!(image.questions.question.is_none());
+}
+
+#[test]
+fn parses_legacy_preset_flag() {
+    let cli = Cli::parse_from([
+        "visual-rubric",
+        "--image",
+        "shot.png",
+        "--preset",
+        "accessibility",
+    ]);
+    assert!(cli.command.is_none());
+    let image: ImageArgs = cli.image.try_into().unwrap();
+    assert_eq!(image.questions.preset.as_deref(), Some("accessibility"));
+    assert!(image.questions.question.is_none());
 }
 
 #[test]

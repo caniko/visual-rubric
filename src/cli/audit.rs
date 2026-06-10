@@ -10,7 +10,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use serde::{Deserialize, Serialize};
 
 use super::static_server::StaticServer;
-use super::{AuditArgs, ImageArgs, ViewportArg, evaluate_image};
+use super::{AuditArgs, ImageArgs, QuestionSource, ViewportArg, evaluate_image};
 
 /// Aggregate status for an audit run.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -177,10 +177,10 @@ pub(super) fn run_audit(args: AuditArgs) -> Result<()> {
     Ok(())
 }
 
-fn evaluate_audit_image(args: &AuditArgs, image: &Path) -> RubricReport {
+fn evaluate_audit_image(args: &AuditArgs, image: &Path, question: &str) -> RubricReport {
     let image_args = ImageArgs {
         image: image.to_path_buf(),
-        question: args.question.clone(),
+        questions: QuestionSource::from_question(question.to_owned()),
         system_prompt: args.system_prompt.clone(),
         model: args.model.clone(),
         effort: args.effort.clone(),
