@@ -95,18 +95,18 @@ fn registered_preset_resolves_question_and_system_prompt() {
         "--image",
         "shot.png",
         "--preset",
-        "syndb-figures",
+        "manuscript-figure",
     ]);
     let Some(Commands::Image(image)) = cli.command else {
         panic!("expected image command");
     };
     assert_eq!(
         image.questions.resolve().unwrap(),
-        crate::presets::SYNDB_FIGURES_QUESTION
+        crate::presets::MANUSCRIPT_FIGURE_QUESTION
     );
     assert_eq!(
         image.questions.resolve_system_prompt().unwrap().as_deref(),
-        Some(crate::presets::SYNDB_FIGURES_SYSTEM_PROMPT)
+        Some(crate::presets::MANUSCRIPT_FIGURE_SYSTEM_PROMPT)
     );
 }
 
@@ -117,7 +117,7 @@ fn unknown_preset_resolution_lists_available_presets() {
         preset: Some("ux-consistency".into()),
     };
     let err = source.resolve().unwrap_err();
-    assert!(err.to_string().contains("plinth-website"));
+    assert!(err.to_string().contains("website-install"));
 }
 
 #[test]

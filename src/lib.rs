@@ -90,15 +90,9 @@ impl Default for RubricRunConfig {
 }
 
 /// Default system prompt used for screenshot rubric requests.
-pub const DEFAULT_SYSTEM_PROMPT: &str = "\
-You are a UI regression auditor. \
-You will be shown one screenshot and asked a specific question. Reply with strict \
-JSON matching this schema and nothing else:
-{ \"verdict\": \"pass\" | \"fail\", \"reason\": string, \"anomalies\": string[] }
-Fail criteria: text clipped or overflowing its container, overlapping interactive \
-elements, missing/blank regions where content should appear, illegible contrast, \
-visibly broken layout. Cosmetic differences from previous runs are NOT failures \
-unless they make the UI worse by the criteria above.";
+///
+/// Shared with the `ui-regression` question preset.
+pub const DEFAULT_SYSTEM_PROMPT: &str = presets::UI_REGRESSION_SYSTEM_PROMPT;
 
 /// Default Codex ACP model.
 pub const DEFAULT_CODEX_ACP_MODEL: &str = "gpt-5.4-mini";
