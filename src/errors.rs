@@ -55,7 +55,7 @@ pub enum PoolError {
 impl fmt::Display for PoolError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Spawn(message) => write!(f, "spawn acp: {message}"),
+            Self::Spawn(message) => write!(f, "spawn acp process: {message}"),
             Self::Rpc(message) => write!(f, "acp rpc error: {message}"),
             Self::RateLimited { retry_after } => {
                 write!(f, "acp rate limited")?;

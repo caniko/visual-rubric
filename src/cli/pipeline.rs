@@ -112,7 +112,7 @@ pub fn run_pipeline(args: PipelineArgs) -> Result<()> {
         &rubric_options,
         &rubric_config,
     )
-    .context("pipeline evaluation failed")?;
+    .with_context(|| format!("pipeline for {} failed", args.image.display()))?;
 
     if args.json {
         println!("{}", serde_json::to_string(&verdict)?);

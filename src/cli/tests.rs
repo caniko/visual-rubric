@@ -49,7 +49,10 @@ fn legacy_image_args_require_image_and_question() {
 
     let cli = Cli::parse_from(["visual-rubric", "--image", "shot.png"]);
     let err = ImageArgs::try_from(cli.image).unwrap_err();
-    assert!(err.to_string().contains("--question or --preset is required"));
+    assert!(
+        err.to_string()
+            .contains("--question or --preset is required")
+    );
 }
 
 #[test]

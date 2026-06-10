@@ -129,7 +129,7 @@ pub fn run_configured(args: ConfiguredArgs) -> Result<()> {
         &rubric_options,
         &rubric_config,
     )
-    .context("configured pipeline failed")?;
+    .with_context(|| format!("pipeline for {} failed", args.image.display()))?;
 
     if args.json {
         println!("{}", serde_json::to_string(&verdict)?);
