@@ -9,8 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Registered question presets `plinth-website`, `chessbender-ui`, and `syndb-figures` with standard system prompts, selectable via `--preset` on the `image`, `audit`, and legacy CLI paths.
-- `presets::find` and `QuestionPreset::system_prompt` so presets supply a default system prompt when `--system-prompt` is not given; unknown-preset errors now list the available names.
+- Registered generic question presets `ui-regression`, `website-install`, and `manuscript-figure` with standard system prompts, selectable via `--preset` on the `image`, `audit`, and legacy CLI paths.
+- `presets::find`, `presets::extend`, and `QuestionPreset::system_prompt` so presets supply a default system prompt when `--system-prompt` is not given and projects can layer their own context on a generic preset; unknown-preset errors now list the available names.
 
 ## [0.1.0] - 2026-06-06
 
