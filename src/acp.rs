@@ -280,6 +280,7 @@ fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
 
 /// Builds the default CLI arguments for the codex-acp binary from a model
 /// name and reasoning effort.
+#[must_use]
 pub fn build_codex_acp_args(model: &str, effort: &str) -> Vec<String> {
     vec![
         "-c".to_string(),

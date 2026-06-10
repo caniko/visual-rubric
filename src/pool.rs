@@ -24,6 +24,7 @@ use codex_home::seed_codex_home;
 const RECYCLE_SPAWN_ATTEMPTS: u32 = 2;
 
 /// Reusable worker pool for evaluating screenshot rubrics through Codex ACP.
+#[derive(Debug)]
 pub struct RubricPool {
     senders: Vec<mpsc::Sender<Job>>,
     handles: Mutex<Vec<JoinHandle<()>>>,
@@ -39,7 +40,7 @@ struct Job {
     reply: mpsc::Sender<Result<RubricVerdict, PoolError>>,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct SharedPoolState {
     completed: AtomicU64,
     failures: AtomicU64,

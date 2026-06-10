@@ -20,6 +20,7 @@ pub trait QuestionPreset {
 
 /// Errors from preset name resolution.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum PresetError {
     /// The named preset was not found.
     NotFound {
