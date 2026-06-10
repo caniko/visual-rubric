@@ -1,15 +1,19 @@
-//! `configured` subcommand — applies the rubric using environment-variable
-//! defaults set by the Home Manager module.
+//! `configured` subcommand — applies the rubric using a TOML config file
+//! written by the Home Manager module.
 //!
-//! All model/URL configuration is read from `VISUAL_RUBRIC_*` environment
-//! variables, so the user only needs `--image` and `--question`. CLI flags
-//! override individual env vars for one-off testing.
+//! The default config path is `~/.config/visual-rubric/config.toml`.
+//! CLI flags override individual TOML fields for one-off testing.
 
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
+use serde::Deserialize;
 
 use crate::vision::VisionApiConfig;
+
+use super::QuestionSource;
+
+const DEFAULT_CONFIG_PATH: &str = "visual-rubric/config.toml";
 
 /// Arguments for the `configured` subcommand.
 #[derive(Clone, Debug, clap::Parser)]
@@ -18,9 +22,9 @@ pub struct ConfiguredArgs {
     #[arg(long)]
     pub image: PathBuf,
 
-    /// Rubric question.
-    #[arg(long)]
-    pub question: String,
+    /// Rubric question (required if --preset is not set).
+    #[command(flatten)]
+    pub questions: QuestionSource,
 
     /// Asset name for assertion messages.
     #[arg(long, default_value = "screenshot")]
@@ -30,92 +34,133 @@ pub struct ConfiguredArgs {
     #[arg(long)]
     pub json: bool,
 
-    // --- Configuration read from env vars ---
+    /// TOML config path (default: ~/.config/visual-rubric/config.toml).
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+
+    // --- CLI overrides (fall back to TOML, then built-in defaults) ---
     /// Vision API base URL.
-    /// Reads from VISUAL_RUBRIC_VISION_URL when not provided.
-    #[arg(long, env = "VISUAL_RUBRIC_VISION_URL")]
+    #[arg(long)]
     pub vision_url: Option<String>,
 
     /// Vision model name.
-    /// Reads from VISUAL_RUBRIC_VISION_MODEL.
-    #[arg(
-        long,
-        env = "VISUAL_RUBRIC_VISION_MODEL",
-        default_value = "qwen3-vl-8b"
-    )]
-    pub vision_model: String,
+    #[arg(long)]
+    pub vision_model: Option<String>,
 
     /// Vision API key (Bearer token).
-    /// Reads from VISUAL_RUBRIC_VISION_API_KEY.
-    #[arg(long, env = "VISUAL_RUBRIC_VISION_API_KEY")]
+    #[arg(long)]
     pub vision_api_key: Option<String>,
 
     /// Custom prompt for the vision extraction stage.
-    /// Reads from VISUAL_RUBRIC_VISION_PROMPT.
-    #[arg(long, env = "VISUAL_RUBRIC_VISION_PROMPT")]
+    #[arg(long)]
     pub vision_prompt: Option<String>,
 
     /// ACP binary path (opencode or codex-acp).
-    /// Reads from VISUAL_RUBRIC_ACP_BINARY.
-    #[arg(long, env = "VISUAL_RUBRIC_ACP_BINARY", default_value = "opencode")]
-    pub acp_binary: PathBuf,
+    #[arg(long)]
+    pub acp_binary: Option<String>,
 
     /// Extra CLI arguments for the ACP binary. May be repeated.
-    /// When not provided on the CLI, parsed from VISUAL_RUBRIC_ACP_ARGS
-    /// (space-separated string, default "acp").
     #[arg(long = "acp-arg")]
     pub acp_args: Vec<String>,
 
     /// Rubric model name (passed to codex-acp; ignored for opencode).
-    /// Reads from VISUAL_RUBRIC_MODEL.
-    #[arg(long, env = "VISUAL_RUBRIC_MODEL")]
+    #[arg(long)]
     pub model: Option<String>,
 
     /// Rubric reasoning effort.
-    /// Reads from VISUAL_RUBRIC_EFFORT.
-    #[arg(long, env = "VISUAL_RUBRIC_EFFORT")]
+    #[arg(long)]
     pub effort: Option<String>,
 
     /// Rubric system prompt override.
-    /// Reads from VISUAL_RUBRIC_SYSTEM_PROMPT.
-    #[arg(long, env = "VISUAL_RUBRIC_SYSTEM_PROMPT")]
+    #[arg(long)]
     pub system_prompt: Option<String>,
 }
 
-/// Runs the configured pipeline using env-var defaults.
+/// TOML config shape written by the HM module.
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct TomlConfig {
+    vision: TomlVision,
+    rubric: TomlRubric,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct TomlVision {
+    url: Option<String>,
+    model: Option<String>,
+    api_key: Option<String>,
+    prompt: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct TomlRubric {
+    backend: Option<String>,
+    args: Option<Vec<String>>,
+    model: Option<String>,
+    effort: Option<String>,
+    system_prompt: Option<String>,
+}
+
+/// Runs the configured pipeline using TOML config + CLI overrides.
 ///
 /// # Errors
 ///
 /// Returns errors from the vision API, ACP, or verdict parsing.
 pub fn run_configured(args: ConfiguredArgs) -> Result<()> {
-    let vision_url = args.vision_url.context(
-        "VISUAL_RUBRIC_VISION_URL is not set. Either pass --vision-url or set the environment variable.",
-    )?;
+    let question = args.questions.resolve().map_err(|e| anyhow!(e))?;
+    let toml = load_config(args.config.as_deref())?;
+
+    let vision_url = args
+        .vision_url
+        .or(toml.vision.url)
+        .context("vision URL is not set. Set it in config.toml or pass --vision-url")?;
+
+    let vision_model = args
+        .vision_model
+        .or(toml.vision.model)
+        .unwrap_or_else(|| "qwen3-vl-8b".to_string());
 
     let vision_config = VisionApiConfig {
         url: vision_url,
-        model: args.vision_model,
-        api_key: args.vision_api_key,
+        model: vision_model,
+        api_key: args.vision_api_key.or(toml.vision.api_key),
     };
 
     let vision_prompt = args
         .vision_prompt
+        .or(toml.vision.prompt)
         .unwrap_or_else(|| crate::DEFAULT_VISION_PROMPT.to_string());
 
+    let system_prompt = match args.system_prompt.or(toml.rubric.system_prompt) {
+        Some(prompt) => Some(prompt),
+        None => args
+            .questions
+            .resolve_system_prompt()
+            .map_err(|e| anyhow!(e))?,
+    };
     let rubric_options = crate::RubricOptions {
-        model: args.model,
-        effort: args.effort.map(Into::into),
-        system_prompt: args.system_prompt,
+        model: args.model.or(toml.rubric.model),
+        effort: args.effort.or(toml.rubric.effort).map(Into::into),
+        system_prompt,
     };
 
-    let acp_args = if args.acp_args.is_empty() {
-        parse_acp_args_from_env()
-    } else {
+    let acp_args = if !args.acp_args.is_empty() {
         args.acp_args
+    } else if let Some(toml_args) = &toml.rubric.args {
+        toml_args.clone()
+    } else {
+        vec!["acp".to_string()]
     };
+
+    let acp_binary = args
+        .acp_binary
+        .or(toml.rubric.backend)
+        .unwrap_or_else(|| "opencode".to_string());
 
     let rubric_config = crate::RubricRunConfig {
-        codex_acp_binary: args.acp_binary,
+        codex_acp_binary: acp_binary.into(),
         acp_args,
         extra_env: Vec::new(),
         cwd: None,
@@ -123,7 +168,7 @@ pub fn run_configured(args: ConfiguredArgs) -> Result<()> {
 
     let verdict = crate::evaluate_image_rubric_pipeline(
         &args.image,
-        &args.question,
+        &question,
         &vision_config,
         &vision_prompt,
         &rubric_options,
@@ -141,10 +186,38 @@ pub fn run_configured(args: ConfiguredArgs) -> Result<()> {
         .map_err(|error| anyhow::anyhow!(error))
 }
 
-/// Parses `VISUAL_RUBRIC_ACP_ARGS` as a space-separated list of arguments.
-fn parse_acp_args_from_env() -> Vec<String> {
-    match std::env::var("VISUAL_RUBRIC_ACP_ARGS") {
-        Ok(val) if !val.is_empty() => val.split_whitespace().map(str::to_string).collect(),
-        _ => vec!["acp".to_string()],
+fn load_config(cli_path: Option<&std::path::Path>) -> Result<TomlConfig> {
+    let path = match cli_path {
+        Some(p) => p.to_path_buf(),
+        None => match dirs_config_dir() {
+            Some(base) => base.join(DEFAULT_CONFIG_PATH),
+            None => return Ok(TomlConfig::default()),
+        },
+    };
+
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(TomlConfig::default()),
+        Err(e) => return Err(e).context(format!("read config {}", path.display())),
+    };
+
+    toml::from_str(&content).context(format!("parse config {}", path.display()))
+}
+
+fn dirs_config_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| PathBuf::from(h).join(".config"))
+            })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        dirs::config_dir()
     }
 }

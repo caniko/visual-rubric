@@ -7,9 +7,11 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, anyhow};
 
 use crate::vision::VisionApiConfig;
+
+use super::QuestionSource;
 
 /// Arguments for the pipeline subcommand.
 #[derive(Clone, Debug, clap::Parser)]
@@ -18,9 +20,9 @@ pub struct PipelineArgs {
     #[arg(long)]
     pub image: PathBuf,
 
-    /// Rubric question.
-    #[arg(long)]
-    pub question: String,
+    /// Rubric question (required if --preset is not set).
+    #[command(flatten)]
+    pub questions: QuestionSource,
 
     /// Vision API base URL (e.g. http://localhost:8013).
     #[arg(long)]
@@ -75,6 +77,7 @@ pub struct PipelineArgs {
 ///
 /// Returns errors from the vision API, ACP, or verdict parsing.
 pub fn run_pipeline(args: PipelineArgs) -> Result<()> {
+    let question = args.questions.resolve().map_err(|e| anyhow!(e))?;
     let vision_config = VisionApiConfig {
         url: args.vision_url,
         model: args.vision_model,
@@ -85,10 +88,17 @@ pub fn run_pipeline(args: PipelineArgs) -> Result<()> {
         .vision_prompt
         .unwrap_or_else(|| crate::DEFAULT_VISION_PROMPT.to_string());
 
+    let system_prompt = match args.system_prompt.clone() {
+        Some(prompt) => Some(prompt),
+        None => args
+            .questions
+            .resolve_system_prompt()
+            .map_err(|e| anyhow!(e))?,
+    };
     let rubric_options = crate::RubricOptions {
         model: args.model,
         effort: args.effort.map(Into::into),
-        system_prompt: args.system_prompt,
+        system_prompt,
     };
 
     let acp_args = if args.acp_args.is_empty() {
@@ -106,7 +116,7 @@ pub fn run_pipeline(args: PipelineArgs) -> Result<()> {
 
     let verdict = crate::evaluate_image_rubric_pipeline(
         &args.image,
-        &args.question,
+        &question,
         &vision_config,
         &vision_prompt,
         &rubric_options,

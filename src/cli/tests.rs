@@ -5,7 +5,7 @@ use std::os::unix::fs::PermissionsExt as _;
 
 use clap::Parser as _;
 
-use super::{AuditReport, AuditStatus, Cli, Commands, ImageArgs, PathBuf, run};
+use super::{AuditReport, AuditStatus, Cli, Commands, ImageArgs, PathBuf, QuestionSource, run};
 
 #[test]
 fn parses_custom_system_prompt() {
@@ -85,6 +85,39 @@ fn parses_legacy_preset_flag() {
     let image: ImageArgs = cli.image.try_into().unwrap();
     assert_eq!(image.questions.preset.as_deref(), Some("accessibility"));
     assert!(image.questions.question.is_none());
+}
+
+#[test]
+fn registered_preset_resolves_question_and_system_prompt() {
+    let cli = Cli::parse_from([
+        "visual-rubric",
+        "image",
+        "--image",
+        "shot.png",
+        "--preset",
+        "syndb-figures",
+    ]);
+    let Some(Commands::Image(image)) = cli.command else {
+        panic!("expected image command");
+    };
+    assert_eq!(
+        image.questions.resolve().unwrap(),
+        crate::presets::SYNDB_FIGURES_QUESTION
+    );
+    assert_eq!(
+        image.questions.resolve_system_prompt().unwrap().as_deref(),
+        Some(crate::presets::SYNDB_FIGURES_SYSTEM_PROMPT)
+    );
+}
+
+#[test]
+fn unknown_preset_resolution_lists_available_presets() {
+    let source = QuestionSource {
+        question: None,
+        preset: Some("ux-consistency".into()),
+    };
+    let err = source.resolve().unwrap_err();
+    assert!(err.to_string().contains("plinth-website"));
 }
 
 #[test]

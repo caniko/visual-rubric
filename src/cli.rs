@@ -201,6 +201,20 @@ impl QuestionSource {
             (None, None) => unreachable!("clap enforces at least one of --question or --preset"),
         }
     }
+
+    /// Resolves the preset's standard system prompt.
+    ///
+    /// Returns `None` when no preset was selected or the preset does not
+    /// define a system prompt.  Callers should prefer an explicit
+    /// `--system-prompt` over this value.
+    pub fn resolve_system_prompt(&self) -> Result<Option<String>, PresetError> {
+        match &self.preset {
+            Some(name) => Ok(crate::presets::find(name)?
+                .system_prompt()
+                .map(str::to_owned)),
+            None => Ok(None),
+        }
+    }
 }
 
 /// Runs a parsed CLI command.
@@ -238,10 +252,17 @@ fn run_serve(args: ServeArgs) -> Result<()> {
 
 fn evaluate_image(args: &ImageArgs) -> Result<crate::RubricVerdict> {
     let question = args.questions.resolve().map_err(|e| anyhow!(e))?;
+    let system_prompt = match args.system_prompt.clone() {
+        Some(prompt) => Some(prompt),
+        None => args
+            .questions
+            .resolve_system_prompt()
+            .map_err(|e| anyhow!(e))?,
+    };
     let options = crate::RubricOptions {
         model: args.model.clone(),
         effort: args.effort.clone().map(Into::into),
-        system_prompt: args.system_prompt.clone(),
+        system_prompt,
     };
     if let Some(codex_acp) = &args.codex_acp {
         let pool = crate::RubricPool::new(crate::PoolConfig {
