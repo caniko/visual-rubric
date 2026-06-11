@@ -7,7 +7,9 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use clap::Parser as _;
 
-use super::{AuditReport, AuditStatus, Cli, Commands, ImageArgs, PathBuf, QuestionSource, run};
+use super::{
+    AuditReport, AuditStatus, Cli, Commands, ImageArgs, PathBuf, QuestionSource, configured, run,
+};
 
 #[cfg(unix)]
 fn audit_test_lock() -> MutexGuard<'static, ()> {
@@ -118,6 +120,24 @@ fn registered_preset_resolves_question_and_system_prompt() {
         image.questions.resolve_system_prompt().unwrap().as_deref(),
         Some(crate::presets::MANUSCRIPT_FIGURE_SYSTEM_PROMPT)
     );
+}
+
+#[test]
+fn parses_configured_mode_override() {
+    let cli = Cli::parse_from([
+        "visual-rubric",
+        "configured",
+        "--image",
+        "shot.png",
+        "--question",
+        "Is it readable?",
+        "--mode",
+        "pipeline",
+    ]);
+    let Some(Commands::Configured(args)) = cli.command else {
+        panic!("expected configured command");
+    };
+    assert_eq!(args.mode, Some(configured::ConfiguredMode::Pipeline));
 }
 
 #[test]

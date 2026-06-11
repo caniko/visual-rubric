@@ -47,11 +47,11 @@ enum Commands {
     /// Stage 2 sends that description to an ACP backend (opencode with
     /// DeepSeek V4, or codex-acp) for the final rubric verdict.
     Pipeline(pipeline::PipelineArgs),
-    /// Pipeline configured via environment variables (set by HM module).
+    /// Pipeline configured via a TOML file written by the HM module.
     ///
-    /// Reads all configuration from `VISUAL_RUBRIC_*` env vars so the
+    /// Reads configuration from `~/.config/visual-rubric/config.toml` so the
     /// user only needs `--image` and `--question`. CLI flags override
-    /// individual env vars for one-off testing.
+    /// individual TOML fields for one-off testing.
     Configured(configured::ConfiguredArgs),
 }
 

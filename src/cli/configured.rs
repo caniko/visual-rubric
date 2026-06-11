@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, anyhow};
+use clap::ValueEnum;
 use serde::Deserialize;
 
 use crate::vision::VisionApiConfig;
@@ -14,6 +15,9 @@ use crate::vision::VisionApiConfig;
 use super::QuestionSource;
 
 const DEFAULT_CONFIG_PATH: &str = "visual-rubric/config.toml";
+const DEFAULT_DIRECT_MODEL: &str = "gpt-5.5";
+const DEFAULT_DIRECT_EFFORT: &str = "medium";
+const DEFAULT_PIPELINE_VISION_MODEL: &str = "qwen3-vl-8b";
 
 /// Arguments for the `configured` subcommand.
 #[derive(Clone, Debug, clap::Parser)]
@@ -39,6 +43,10 @@ pub struct ConfiguredArgs {
     pub config: Option<PathBuf>,
 
     // --- CLI overrides (fall back to TOML, then built-in defaults) ---
+    /// Backend mode: direct codex-acp image evaluation or two-stage pipeline.
+    #[arg(long, value_enum)]
+    pub mode: Option<ConfiguredMode>,
+
     /// Vision API base URL.
     #[arg(long)]
     pub vision_url: Option<String>,
@@ -76,15 +84,27 @@ pub struct ConfiguredArgs {
     pub system_prompt: Option<String>,
 }
 
+/// Configured backend mode.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfiguredMode {
+    /// Direct screenshot evaluation through codex-acp.
+    Direct,
+    /// Qwen3-VL vision extraction followed by ACP rubric scoring.
+    #[default]
+    Pipeline,
+}
+
 /// TOML config shape written by the HM module.
-#[derive(Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 struct TomlConfig {
+    mode: Option<ConfiguredMode>,
     vision: TomlVision,
     rubric: TomlRubric,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 struct TomlVision {
     url: Option<String>,
@@ -93,7 +113,7 @@ struct TomlVision {
     prompt: Option<String>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Debug, Deserialize, Default)]
 #[serde(default)]
 struct TomlRubric {
     backend: Option<String>,
@@ -111,27 +131,7 @@ struct TomlRubric {
 pub fn run_configured(args: ConfiguredArgs) -> Result<()> {
     let question = args.questions.resolve().map_err(|e| anyhow!(e))?;
     let toml = load_config(args.config.as_deref())?;
-
-    let vision_url = args
-        .vision_url
-        .or(toml.vision.url)
-        .context("vision URL is not set. Set it in config.toml or pass --vision-url")?;
-
-    let vision_model = args
-        .vision_model
-        .or(toml.vision.model)
-        .unwrap_or_else(|| "qwen3-vl-8b".to_string());
-
-    let vision_config = VisionApiConfig {
-        url: vision_url,
-        model: vision_model,
-        api_key: args.vision_api_key.or(toml.vision.api_key),
-    };
-
-    let vision_prompt = args
-        .vision_prompt
-        .or(toml.vision.prompt)
-        .unwrap_or_else(|| crate::DEFAULT_VISION_PROMPT.to_string());
+    let mode = args.mode.or(toml.mode).unwrap_or_default();
 
     let system_prompt = match args.system_prompt.or(toml.rubric.system_prompt) {
         Some(prompt) => Some(prompt),
@@ -140,41 +140,79 @@ pub fn run_configured(args: ConfiguredArgs) -> Result<()> {
             .resolve_system_prompt()
             .map_err(|e| anyhow!(e))?,
     };
-    let rubric_options = crate::RubricOptions {
-        model: args.model.or(toml.rubric.model),
-        effort: args.effort.or(toml.rubric.effort).map(Into::into),
+    let rubric_options = rubric_options_for_mode(
+        mode,
+        args.model,
+        toml.rubric.model,
+        args.effort,
+        toml.rubric.effort,
         system_prompt,
+    );
+
+    let verdict = match mode {
+        ConfiguredMode::Direct => {
+            let rubric_config = direct_rubric_config(args.acp_binary, toml.rubric.backend);
+            crate::evaluate_image_rubric_with_config(
+                &args.image,
+                &question,
+                rubric_options,
+                rubric_config,
+            )
+            .with_context(|| format!("direct rubric for {} failed", args.image.display()))?
+        }
+        ConfiguredMode::Pipeline => {
+            let vision_url = args
+                .vision_url
+                .or(toml.vision.url)
+                .context("vision URL is not set. Set it in config.toml or pass --vision-url")?;
+
+            let vision_model = args
+                .vision_model
+                .or(toml.vision.model)
+                .unwrap_or_else(|| DEFAULT_PIPELINE_VISION_MODEL.to_string());
+
+            let vision_config = VisionApiConfig {
+                url: vision_url,
+                model: vision_model,
+                api_key: args.vision_api_key.or(toml.vision.api_key),
+            };
+
+            let vision_prompt = args
+                .vision_prompt
+                .or(toml.vision.prompt)
+                .unwrap_or_else(|| crate::DEFAULT_VISION_PROMPT.to_string());
+
+            let acp_args = if !args.acp_args.is_empty() {
+                args.acp_args
+            } else if let Some(toml_args) = &toml.rubric.args {
+                toml_args.clone()
+            } else {
+                vec!["acp".to_string()]
+            };
+
+            let acp_binary = args
+                .acp_binary
+                .or(toml.rubric.backend)
+                .unwrap_or_else(|| "opencode".to_string());
+
+            let rubric_config = crate::RubricRunConfig {
+                codex_acp_binary: acp_binary.into(),
+                acp_args,
+                extra_env: Vec::new(),
+                cwd: None,
+            };
+
+            crate::evaluate_image_rubric_pipeline(
+                &args.image,
+                &question,
+                &vision_config,
+                &vision_prompt,
+                &rubric_options,
+                &rubric_config,
+            )
+            .with_context(|| format!("pipeline for {} failed", args.image.display()))?
+        }
     };
-
-    let acp_args = if !args.acp_args.is_empty() {
-        args.acp_args
-    } else if let Some(toml_args) = &toml.rubric.args {
-        toml_args.clone()
-    } else {
-        vec!["acp".to_string()]
-    };
-
-    let acp_binary = args
-        .acp_binary
-        .or(toml.rubric.backend)
-        .unwrap_or_else(|| "opencode".to_string());
-
-    let rubric_config = crate::RubricRunConfig {
-        codex_acp_binary: acp_binary.into(),
-        acp_args,
-        extra_env: Vec::new(),
-        cwd: None,
-    };
-
-    let verdict = crate::evaluate_image_rubric_pipeline(
-        &args.image,
-        &question,
-        &vision_config,
-        &vision_prompt,
-        &rubric_options,
-        &rubric_config,
-    )
-    .with_context(|| format!("pipeline for {} failed", args.image.display()))?;
 
     if args.json {
         println!("{}", serde_json::to_string(&verdict)?);
@@ -184,6 +222,45 @@ pub fn run_configured(args: ConfiguredArgs) -> Result<()> {
     crate::assert_verdict(&args.name, verdict)
         .map(|()| println!("visual rubric passed"))
         .map_err(|error| anyhow::anyhow!(error))
+}
+
+fn rubric_options_for_mode(
+    mode: ConfiguredMode,
+    cli_model: Option<String>,
+    toml_model: Option<String>,
+    cli_effort: Option<String>,
+    toml_effort: Option<String>,
+    system_prompt: Option<String>,
+) -> crate::RubricOptions {
+    let (default_model, default_effort) = match mode {
+        ConfiguredMode::Direct => (Some(DEFAULT_DIRECT_MODEL), Some(DEFAULT_DIRECT_EFFORT)),
+        ConfiguredMode::Pipeline => (None, None),
+    };
+    crate::RubricOptions {
+        model: cli_model
+            .or(toml_model)
+            .or_else(|| default_model.map(str::to_string)),
+        effort: cli_effort
+            .or(toml_effort)
+            .or_else(|| default_effort.map(str::to_string))
+            .map(Into::into),
+        system_prompt,
+    }
+}
+
+fn direct_rubric_config(
+    cli_binary: Option<String>,
+    toml_binary: Option<String>,
+) -> crate::RubricRunConfig {
+    crate::RubricRunConfig {
+        codex_acp_binary: cli_binary
+            .or(toml_binary)
+            .unwrap_or_else(|| "codex-acp".to_string())
+            .into(),
+        acp_args: Vec::new(),
+        extra_env: Vec::new(),
+        cwd: None,
+    }
 }
 
 fn load_config(cli_path: Option<&std::path::Path>) -> Result<TomlConfig> {
@@ -219,5 +296,80 @@ fn dirs_config_dir() -> Option<PathBuf> {
     #[cfg(not(target_os = "linux"))]
     {
         dirs::config_dir()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_direct_mode_without_vision_config() {
+        let config: TomlConfig = toml::from_str(
+            r#"
+mode = "direct"
+
+[rubric]
+backend = "codex-acp"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.mode, Some(ConfiguredMode::Direct));
+        assert!(config.vision.url.is_none());
+    }
+
+    #[test]
+    fn direct_mode_defaults_to_gpt55_medium_codex_acp() {
+        let options = rubric_options_for_mode(ConfiguredMode::Direct, None, None, None, None, None);
+        let config = direct_rubric_config(None, None);
+
+        assert_eq!(options.model.as_deref(), Some("gpt-5.5"));
+        assert_eq!(options.effort.as_deref(), Some("medium"));
+        assert_eq!(config.codex_acp_binary, PathBuf::from("codex-acp"));
+    }
+
+    #[test]
+    fn pipeline_mode_does_not_add_direct_model_defaults() {
+        let options =
+            rubric_options_for_mode(ConfiguredMode::Pipeline, None, None, None, None, None);
+
+        assert!(options.model.is_none());
+        assert!(options.effort.is_none());
+    }
+
+    #[test]
+    fn pipeline_mode_requires_vision_url() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let config_path = temp.path().join("config.toml");
+        std::fs::write(&config_path, "mode = \"pipeline\"\n").unwrap();
+
+        let err = run_configured(ConfiguredArgs {
+            image: temp.path().join("missing.png"),
+            questions: QuestionSource::from_question("Does it render?".to_string()),
+            name: "screenshot".to_string(),
+            json: false,
+            config: Some(config_path),
+            mode: None,
+            vision_url: None,
+            vision_model: None,
+            vision_api_key: None,
+            vision_prompt: None,
+            acp_binary: None,
+            acp_args: Vec::new(),
+            model: None,
+            effort: None,
+            system_prompt: None,
+        })
+        .unwrap_err();
+
+        assert!(err.to_string().contains("vision URL is not set"));
+    }
+
+    #[test]
+    fn invalid_mode_is_rejected_by_toml_parser() {
+        let err = toml::from_str::<TomlConfig>("mode = \"gpt55\"").unwrap_err();
+
+        assert!(err.to_string().contains("mode"));
     }
 }
