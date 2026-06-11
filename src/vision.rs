@@ -8,7 +8,7 @@
 use crate::PoolError;
 
 /// Configuration for calling an OpenAI-compatible vision API.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisionApiConfig {
     /// Base URL of the API, e.g. `"http://localhost:8013"`.
     pub url: String,

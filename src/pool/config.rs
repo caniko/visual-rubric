@@ -10,7 +10,7 @@ use crate::{
 pub(super) const DEFAULT_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 
 /// Configuration for a [`crate::RubricPool`].
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PoolConfig {
     /// Number of worker processes to keep alive.
     pub workers: usize,
@@ -84,7 +84,7 @@ pub enum LogPathMode {
 }
 
 /// Snapshot of pool execution counters.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct PoolStats {
     /// Successfully completed jobs.
     pub completed: u64,

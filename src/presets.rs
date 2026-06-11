@@ -107,6 +107,7 @@ and complete."
 
 /// Preset `ui-regression`: generic defect check for one application UI
 /// screenshot without a scenario-specific checklist.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UiRegression;
 
 impl QuestionPreset for UiRegression {
@@ -124,6 +125,7 @@ impl QuestionPreset for UiRegression {
 }
 
 /// Preset `website-install`: install-section UX audit for project websites.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WebsiteInstall;
 
 impl QuestionPreset for WebsiteInstall {
@@ -142,6 +144,7 @@ impl QuestionPreset for WebsiteInstall {
 
 /// Preset `manuscript-figure`: publication QA for scientific manuscript
 /// figure PNGs.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ManuscriptFigure;
 
 impl QuestionPreset for ManuscriptFigure {

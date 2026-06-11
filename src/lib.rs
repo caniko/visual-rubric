@@ -37,8 +37,8 @@ pub use errors::{PoolError, RateLimitEvent, RubricError};
 pub use pool::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats, RubricPool};
 pub use typed_strings::{RubricEffort, RubricVerdictStatus};
 
-#[derive(Debug, Deserialize, Serialize)]
 /// Parsed rubric verdict returned by ACP.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 pub struct RubricVerdict {
     /// Machine-readable pass/fail status.
     pub verdict: RubricVerdictStatus,
