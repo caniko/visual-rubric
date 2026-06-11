@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn default_options_use_documented_defaults() {
+    let options = default_options();
+
+    assert_eq!(options.model.as_deref(), Some(DEFAULT_CODEX_ACP_MODEL));
+    assert_eq!(
+        options.effort.as_deref(),
+        Some(DEFAULT_CODEX_ACP_REASONING_EFFORT)
+    );
+    assert_eq!(
+        options.system_prompt.as_deref(),
+        Some(DEFAULT_SYSTEM_PROMPT)
+    );
+}
+
+#[test]
+fn encode_png_base64_encodes_file_contents() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let png = temp.path().join("sample.png");
+    std::fs::write(&png, [1_u8, 2, 3]).expect("write png");
+
+    assert_eq!(encode_png(&png).expect("encoded png"), "AQID");
+}
+
+#[test]
 fn pass_verdict_succeeds() {
     let verdict = RubricVerdict {
         verdict: "pass".into(),
@@ -79,4 +103,15 @@ fn parse_verdict_accepts_prefixed_json_object() {
     assert!(verdict.verdict.is_pass());
     assert_eq!(verdict.reason, "ok");
     assert!(verdict.anomalies.is_empty());
+}
+
+#[test]
+fn parse_verdict_extracts_json_when_strings_contain_braces() {
+    let verdict = parse_verdict(
+        r#"analysis {"verdict":"fail","reason":"selector {main} overlaps","anomalies":[]}"#,
+    )
+    .unwrap();
+
+    assert_eq!(verdict.verdict, "fail");
+    assert_eq!(verdict.reason, "selector {main} overlaps");
 }
