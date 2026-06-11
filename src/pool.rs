@@ -429,9 +429,10 @@ fn merge_options(mut opts: RubricOptions, defaults: &RubricOptions) -> RubricOpt
 fn backoff_delay(attempt: u32, base: Duration, cap: Duration) -> Duration {
     let multiplier = 1u32 << attempt.min(6);
     let capped = base.saturating_mul(multiplier).min(cap);
-    let jitter_cap = capped.as_millis() as u64 / 4;
+    let capped_millis = u64::try_from(capped.as_millis()).map_or(u64::MAX, |millis| millis);
+    let jitter_cap = capped_millis / 4;
     let jitter_ms = rand::rng().random_range(0..=jitter_cap);
-    capped + Duration::from_millis(jitter_ms)
+    capped.saturating_add(Duration::from_millis(jitter_ms))
 }
 
 fn alive_mask(workers: usize) -> u64 {

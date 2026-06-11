@@ -331,12 +331,23 @@ impl std::str::FromStr for ViewportArg {
         let (width, height) = size
             .split_once('x')
             .context("viewport size must be WIDTHxHEIGHT")?;
+        if name.is_empty() {
+            anyhow::bail!("viewport name must not be empty");
+        }
+        if name.contains('/') || name.contains('\\') {
+            anyhow::bail!("viewport name {name:?} must not contain path separators");
+        }
+        let width = width.parse().context("viewport width must be an integer")?;
+        let height = height
+            .parse()
+            .context("viewport height must be an integer")?;
+        if width == 0 || height == 0 {
+            anyhow::bail!("viewport dimensions must be greater than zero");
+        }
         Ok(Self {
             name: name.to_string(),
-            width: width.parse().context("viewport width must be an integer")?,
-            height: height
-                .parse()
-                .context("viewport height must be an integer")?,
+            width,
+            height,
         })
     }
 }

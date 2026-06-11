@@ -139,6 +139,28 @@ fn parses_audit_viewports() {
     assert_eq!(audit.viewports[0].width, 1440);
 }
 
+#[test]
+fn rejects_invalid_audit_viewports() {
+    for viewport in ["=1440x900", "../wide=1440x900", "wide=0x900", "wide=1440x0"] {
+        let err = Cli::try_parse_from([
+            "visual-rubric",
+            "audit",
+            "--root",
+            "public",
+            "--question",
+            "Is it usable?",
+            "--viewport",
+            viewport,
+        ])
+        .expect_err("invalid viewport should fail");
+
+        assert!(
+            err.to_string().contains("viewport"),
+            "error should name viewport for {viewport:?}: {err}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn audit_hosts_static_site_and_writes_report_with_fake_browser() {
