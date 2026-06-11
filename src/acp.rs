@@ -78,16 +78,21 @@ impl AcpClient {
         .to_string_lossy()
         .into_owned();
         let session_request_id = self.claim_id();
-        let session_id = self.request(
+        let response = self.request(
             session_request_id,
             "session/new",
             serde_json::json!({
                 "cwd": cwd,
                 "mcpServers": []
             }),
-        )?["sessionId"]
+        )?;
+        let session_id = response["sessionId"]
             .as_str()
-            .ok_or_else(|| PoolError::Rpc("unexpected session/new response shape".to_string()))?
+            .ok_or_else(|| {
+                PoolError::Rpc(format!(
+                    "session/new response missing string sessionId: {response}"
+                ))
+            })?
             .to_string();
         self.session_id = Some(session_id);
         Ok(())
@@ -101,7 +106,7 @@ impl AcpClient {
         let session_id = self
             .session_id
             .clone()
-            .ok_or_else(|| PoolError::Rpc("session not initialized".to_string()))?;
+            .ok_or_else(|| PoolError::Rpc("cannot prompt image before session/new".to_string()))?;
         let prompt_id = self.claim_id();
         self.prompt(
             prompt_id,
@@ -120,7 +125,7 @@ impl AcpClient {
         let session_id = self
             .session_id
             .clone()
-            .ok_or_else(|| PoolError::Rpc("session not initialized".to_string()))?;
+            .ok_or_else(|| PoolError::Rpc("cannot prompt text before session/new".to_string()))?;
         let prompt_id = self.claim_id();
         self.prompt(
             prompt_id,

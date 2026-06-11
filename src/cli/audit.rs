@@ -254,12 +254,15 @@ fn ensure_hosted_path_ok(url: &str) -> Result<()> {
 fn http_status(url: &str) -> Result<u16> {
     let rest = url
         .strip_prefix("http://127.0.0.1:")
-        .context("only local audit URLs are supported")?;
+        .with_context(|| format!("audit URL {url} must start with http://127.0.0.1:"))?;
     let (port, path) = rest
         .split_once('/')
-        .context("local audit URL missing path")?;
-    let port = port.parse::<u16>().context("local audit URL port")?;
-    let mut stream = TcpStream::connect(("127.0.0.1", port)).context("connect local server")?;
+        .with_context(|| format!("audit URL {url} is missing a path after the port"))?;
+    let port = port
+        .parse::<u16>()
+        .with_context(|| format!("audit URL {url} has invalid port {port:?}"))?;
+    let mut stream = TcpStream::connect(("127.0.0.1", port))
+        .with_context(|| format!("connect local audit server on 127.0.0.1:{port}"))?;
     write!(
         stream,
         "GET /{path} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"
@@ -267,13 +270,13 @@ fn http_status(url: &str) -> Result<u16> {
     let mut status_line = String::new();
     BufReader::new(stream)
         .read_line(&mut status_line)
-        .context("read local server status")?;
+        .with_context(|| format!("read HTTP status from local audit URL {url}"))?;
     status_line
         .split_whitespace()
         .nth(1)
-        .context("missing HTTP status")?
+        .with_context(|| format!("local audit URL {url} returned no HTTP status code"))?
         .parse()
-        .context("parse HTTP status")
+        .with_context(|| format!("parse HTTP status from {status_line:?}"))
 }
 
 fn capture_screenshot(
