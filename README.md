@@ -92,6 +92,19 @@ Audit reports are versioned JSON. They include an aggregate status, capture URL,
 elapsed time, effective high-level options, and one rubric result per screenshot.
 Use `--fail-on-rubric` when CI should fail on rubric failures or rubric errors.
 
+For Home Manager-managed setups, keep backend selection in
+`~/.config/visual-rubric/config.toml` and run:
+
+```sh
+visual-rubric configured \
+  --image site-desktop.png \
+  --question "Does this page stay readable?"
+```
+
+Set `mode = "direct"` for direct `codex-acp` screenshot review, or
+`mode = "pipeline"` for Qwen3-VL extraction followed by ACP rubric scoring.
+`--mode direct` and `--mode pipeline` override the TOML mode for one run.
+
 For manual inspection without rubric evaluation:
 
 ```sh
