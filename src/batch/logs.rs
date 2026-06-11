@@ -37,7 +37,9 @@ fn copy_selected_logs(
         if source.is_dir() {
             copy_selected_logs(source_root, &source, destination_root, path_mode, copied)?;
         } else if should_copy_acp_log(&source) {
-            let relative = source.strip_prefix(source_root).unwrap_or(source.as_path());
+            let relative = source
+                .strip_prefix(source_root)
+                .map_or(source.as_path(), |relative| relative);
             let destination = destination_root.join(relative);
             if let Some(parent) = destination.parent() {
                 fs::create_dir_all(parent)?;
@@ -66,7 +68,7 @@ fn report_path(path_mode: &LogPathMode, destination: &Path) -> String {
     match path_mode {
         LogPathMode::RelativeTo(root) => destination
             .strip_prefix(root)
-            .unwrap_or(destination)
+            .map_or(destination, |relative| relative)
             .to_string_lossy()
             .into_owned(),
         LogPathMode::Absolute => destination.to_string_lossy().into_owned(),

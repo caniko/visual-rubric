@@ -191,13 +191,15 @@ pub fn evaluate_image_rubric_with_config(
     let text = run_codex_acp_rubric(
         &b64,
         question,
-        opts.model.as_deref().unwrap_or(DEFAULT_CODEX_ACP_MODEL),
+        opts.model
+            .as_deref()
+            .map_or(DEFAULT_CODEX_ACP_MODEL, |model| model),
         opts.effort
             .as_deref()
-            .unwrap_or(DEFAULT_CODEX_ACP_REASONING_EFFORT),
+            .map_or(DEFAULT_CODEX_ACP_REASONING_EFFORT, |effort| effort),
         opts.system_prompt
             .as_deref()
-            .unwrap_or(DEFAULT_SYSTEM_PROMPT),
+            .map_or(DEFAULT_SYSTEM_PROMPT, |system_prompt| system_prompt),
         &config,
     )?;
 
@@ -236,7 +238,7 @@ pub fn evaluate_image_rubric_pipeline(
     let system_prompt = rubric_options
         .system_prompt
         .as_deref()
-        .unwrap_or(DEFAULT_SYSTEM_PROMPT);
+        .map_or(DEFAULT_SYSTEM_PROMPT, |system_prompt| system_prompt);
     let rubric_prompt =
         format!("{system_prompt}\n\nUI description:\n{structured}\n\nQuestion: {question}");
 

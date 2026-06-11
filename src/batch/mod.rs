@@ -378,7 +378,7 @@ fn status_for_selected(path: &Path, changes: &[AssetChange]) -> &'static str {
     changes
         .iter()
         .find_map(|change| (change.path() == path).then_some(change.status()))
-        .unwrap_or("selected")
+        .map_or("selected", |status| status)
 }
 
 fn skipped_asset_reports(

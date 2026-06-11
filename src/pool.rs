@@ -307,7 +307,7 @@ impl Worker {
             .options
             .system_prompt
             .as_deref()
-            .unwrap_or(DEFAULT_SYSTEM_PROMPT);
+            .map_or(DEFAULT_SYSTEM_PROMPT, |system_prompt| system_prompt);
         let prompt = format!("{system_prompt}\n\nQuestion: {}", job.question);
         let text = runtime.acp.prompt_image(&prompt, &b64)?;
         parse_verdict(&text).map_err(|e| PoolError::ParseVerdict(format!("from {text:?}: {e}")))
@@ -357,11 +357,14 @@ impl Worker {
             ));
         }
 
-        let model = options.model.as_deref().unwrap_or(DEFAULT_CODEX_ACP_MODEL);
+        let model = options
+            .model
+            .as_deref()
+            .map_or(DEFAULT_CODEX_ACP_MODEL, |model| model);
         let effort = options
             .effort
             .as_deref()
-            .unwrap_or(DEFAULT_CODEX_ACP_REASONING_EFFORT);
+            .map_or(DEFAULT_CODEX_ACP_REASONING_EFFORT, |effort| effort);
         let acp_args = build_codex_acp_args(model, effort);
         let mut acp = AcpClient::spawn(&self.config.codex_acp_binary, &acp_args, &env, None)?;
         acp.start_session(None)?;

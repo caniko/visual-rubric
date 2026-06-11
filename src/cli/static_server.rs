@@ -85,7 +85,7 @@ fn serve_static_request(mut stream: TcpStream, root: &Path) -> Result<()> {
         .unwrap_or_default()
         .split_whitespace();
     let method = request_parts.next().unwrap_or_default();
-    let request_path = request_parts.next().unwrap_or("/");
+    let request_path = request_parts.next().map_or("/", |path| path);
     if method != "GET" && method != "HEAD" {
         return write_http_response(
             &mut stream,
@@ -117,7 +117,9 @@ fn serve_static_request(mut stream: TcpStream, root: &Path) -> Result<()> {
 }
 
 pub(super) fn resolve_static_path(root: &Path, request_path: &str) -> PathBuf {
-    let request_path_without_query = request_path.split('?').next().unwrap_or("/");
+    let request_path_without_query = request_path
+        .split_once('?')
+        .map_or(request_path, |(path, _query)| path);
     let Some(clean) = percent_decode_path(request_path_without_query) else {
         return root.join("__invalid__");
     };
