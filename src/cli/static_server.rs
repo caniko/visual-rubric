@@ -10,6 +10,7 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, anyhow};
+use percent_encoding::percent_decode_str;
 
 pub(super) struct StaticServer {
     stop: Arc<AtomicBool>,
@@ -177,28 +178,33 @@ fn write_http_response(
 }
 
 fn percent_decode_path(path: &str) -> Option<String> {
-    let bytes = path.as_bytes();
-    let mut decoded = Vec::with_capacity(bytes.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let hi = *bytes.get(i + 1)?;
-            let lo = *bytes.get(i + 2)?;
-            decoded.push(hex_value(hi)? * 16 + hex_value(lo)?);
-            i += 3;
-        } else {
-            decoded.push(bytes[i]);
-            i += 1;
-        }
+    if !has_valid_percent_escapes(path) {
+        return None;
     }
-    String::from_utf8(decoded).ok()
+    percent_decode_str(path)
+        .decode_utf8()
+        .ok()
+        .map(std::borrow::Cow::into_owned)
 }
 
-fn hex_value(byte: u8) -> Option<u8> {
-    match byte {
-        b'0'..=b'9' => Some(byte - b'0'),
-        b'a'..=b'f' => Some(byte - b'a' + 10),
-        b'A'..=b'F' => Some(byte - b'A' + 10),
-        _ => None,
+fn has_valid_percent_escapes(path: &str) -> bool {
+    let bytes = path.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let Some(hi) = bytes.get(index + 1) else {
+                return false;
+            };
+            let Some(lo) = bytes.get(index + 2) else {
+                return false;
+            };
+            if !hi.is_ascii_hexdigit() || !lo.is_ascii_hexdigit() {
+                return false;
+            }
+            index += 3;
+        } else {
+            index += 1;
+        }
     }
+    true
 }
