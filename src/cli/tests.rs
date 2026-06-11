@@ -2,10 +2,20 @@
 use std::io::Write as _;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
+#[cfg(unix)]
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use clap::Parser as _;
 
 use super::{AuditReport, AuditStatus, Cli, Commands, ImageArgs, PathBuf, QuestionSource, run};
+
+#[cfg(unix)]
+fn audit_test_lock() -> MutexGuard<'static, ()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("audit test lock poisoned")
+}
 
 #[test]
 fn parses_custom_system_prompt() {
@@ -164,6 +174,7 @@ fn rejects_invalid_audit_viewports() {
 #[cfg(unix)]
 #[test]
 fn audit_hosts_static_site_and_writes_report_with_fake_browser() {
+    let _guard = audit_test_lock();
     let temp = tempfile::TempDir::new().unwrap();
     let public = temp.path().join("public");
     std::fs::create_dir_all(&public).unwrap();
@@ -207,6 +218,7 @@ fn audit_hosts_static_site_and_writes_report_with_fake_browser() {
 #[cfg(unix)]
 #[test]
 fn audit_skip_ai_uses_default_viewports_and_report_contract() {
+    let _guard = audit_test_lock();
     let temp = tempfile::TempDir::new().unwrap();
     let public = temp.path().join("public");
     std::fs::create_dir_all(&public).unwrap();
@@ -251,6 +263,7 @@ fn audit_skip_ai_uses_default_viewports_and_report_contract() {
 #[cfg(unix)]
 #[test]
 fn audit_preserves_multiple_viewport_order_and_custom_path() {
+    let _guard = audit_test_lock();
     let temp = tempfile::TempDir::new().unwrap();
     let public = temp.path().join("public");
     std::fs::create_dir_all(public.join("__audit")).unwrap();
@@ -290,6 +303,7 @@ fn audit_preserves_multiple_viewport_order_and_custom_path() {
 #[cfg(unix)]
 #[test]
 fn audit_errors_when_browser_fails_or_writes_no_screenshot() {
+    let _guard = audit_test_lock();
     let temp = tempfile::TempDir::new().unwrap();
     let public = temp.path().join("public");
     std::fs::create_dir_all(&public).unwrap();
