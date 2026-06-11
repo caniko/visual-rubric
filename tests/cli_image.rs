@@ -155,3 +155,41 @@ fn public_api_accepts_custom_binary_env_and_cwd() {
         "custom-value"
     );
 }
+
+#[test]
+fn public_api_forwards_custom_acp_args() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let image = common::write_fixture_png(&temp);
+    let args_log = temp.path().join("args.log");
+
+    let verdict = evaluate_image_rubric_with_config(
+        &image,
+        "Does it pass?",
+        RubricOptions::default(),
+        RubricRunConfig {
+            codex_acp_binary: fake,
+            acp_args: vec!["acp".to_string()],
+            extra_env: vec![
+                (
+                    OsString::from("FAKE_CODEX_ACP_MODE"),
+                    OsString::from("pass"),
+                ),
+                (
+                    OsString::from("FAKE_CODEX_ACP_ARG_LOG"),
+                    args_log.as_os_str().to_os_string(),
+                ),
+            ],
+            cwd: None,
+        },
+    )
+    .expect("verdict");
+
+    assert_eq!(verdict.verdict, "pass");
+    let args = std::fs::read_to_string(args_log).expect("args log");
+    assert!(args.lines().any(|line| line == "acp"), "{args}");
+    assert!(!args.contains("model=\""), "{args}");
+}

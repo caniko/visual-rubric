@@ -371,10 +371,10 @@ fn run_codex_acp_rubric(
     system_prompt: &str,
     config: &RubricRunConfig,
 ) -> Result<String, PoolError> {
-    let args = acp::build_codex_acp_args(model, effort);
+    let args = effective_acp_args(config, model, effort);
     let mut acp = AcpClient::spawn(
         &config.codex_acp_binary,
-        &args,
+        args.as_slice(),
         &config.extra_env,
         config.cwd.as_deref(),
     )?;
@@ -382,6 +382,16 @@ fn run_codex_acp_rubric(
 
     let prompt = format!("{system_prompt}\n\nQuestion: {question}");
     acp.prompt_image(&prompt, b64_png)
+}
+
+fn effective_acp_args(config: &RubricRunConfig, model: &str, effort: &str) -> Vec<String> {
+    if config.acp_args
+        == build_codex_acp_args(DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT)
+    {
+        build_codex_acp_args(model, effort)
+    } else {
+        config.acp_args.clone()
+    }
 }
 
 #[cfg(test)]
