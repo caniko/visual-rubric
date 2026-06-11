@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use super::{
     AggregateStatus, AssetRubricReport, AssetRubricResult, IssueClassificationInput,
     IssueClassifier, IssueRecommendation,
@@ -54,7 +56,7 @@ pub(super) fn classify_recommendations(
     recommendations
 }
 
-fn issue_text(result: &AssetRubricResult) -> Option<String> {
+fn issue_text(result: &AssetRubricResult) -> Option<Cow<'_, str>> {
     match result {
         AssetRubricResult::Fail { reason, anomalies } => {
             let anomaly_len: usize = anomalies.iter().map(String::len).sum();
@@ -64,13 +66,13 @@ fn issue_text(result: &AssetRubricResult) -> Option<String> {
                 text.push(' ');
                 text.push_str(anomaly);
             }
-            Some(text)
+            Some(Cow::Owned(text))
         }
-        AssetRubricResult::Error { message } => Some(message.clone()),
+        AssetRubricResult::Error { message } => Some(Cow::Borrowed(message)),
         AssetRubricResult::NotEvaluatedAfterError {
             root_error,
             retry_hint,
-        } => Some(format!("{root_error} {retry_hint}")),
+        } => Some(Cow::Owned(format!("{root_error} {retry_hint}"))),
         AssetRubricResult::Pass { .. } | AssetRubricResult::Skipped { .. } => None,
     }
 }
