@@ -327,6 +327,7 @@ backend = "codex-acp"
         assert_eq!(options.model.as_deref(), Some("gpt-5.5"));
         assert_eq!(options.effort.as_deref(), Some("medium"));
         assert_eq!(config.codex_acp_binary, PathBuf::from("codex-acp"));
+        assert!(config.acp_args.is_empty());
     }
 
     #[test]
@@ -336,6 +337,122 @@ backend = "codex-acp"
 
         assert!(options.model.is_none());
         assert!(options.effort.is_none());
+    }
+
+    #[test]
+    fn rubric_options_prefer_cli_then_toml_then_direct_defaults() {
+        let options = rubric_options_for_mode(
+            ConfiguredMode::Direct,
+            Some("cli-model".to_string()),
+            Some("toml-model".to_string()),
+            Some("high".to_string()),
+            Some("low".to_string()),
+            Some("Use the exact rubric.".to_string()),
+        );
+
+        assert_eq!(options.model.as_deref(), Some("cli-model"));
+        assert_eq!(options.effort.as_deref(), Some("high"));
+        assert_eq!(
+            options.system_prompt.as_deref(),
+            Some("Use the exact rubric.")
+        );
+
+        let options = rubric_options_for_mode(
+            ConfiguredMode::Direct,
+            None,
+            Some("toml-model".to_string()),
+            None,
+            Some("low".to_string()),
+            None,
+        );
+
+        assert_eq!(options.model.as_deref(), Some("toml-model"));
+        assert_eq!(options.effort.as_deref(), Some("low"));
+    }
+
+    #[test]
+    fn pipeline_options_use_cli_or_toml_without_direct_defaults() {
+        let options = rubric_options_for_mode(
+            ConfiguredMode::Pipeline,
+            None,
+            Some("rubric-model".to_string()),
+            None,
+            Some("medium".to_string()),
+            None,
+        );
+
+        assert_eq!(options.model.as_deref(), Some("rubric-model"));
+        assert_eq!(options.effort.as_deref(), Some("medium"));
+
+        let options = rubric_options_for_mode(
+            ConfiguredMode::Pipeline,
+            Some("cli-model".to_string()),
+            Some("toml-model".to_string()),
+            Some("high".to_string()),
+            Some("low".to_string()),
+            None,
+        );
+
+        assert_eq!(options.model.as_deref(), Some("cli-model"));
+        assert_eq!(options.effort.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn direct_rubric_config_prefers_cli_then_toml_then_default() {
+        let config = direct_rubric_config(
+            Some("cli-codex-acp".to_string()),
+            Some("toml-codex-acp".to_string()),
+        );
+        assert_eq!(config.codex_acp_binary, PathBuf::from("cli-codex-acp"));
+        assert!(config.acp_args.is_empty());
+
+        let config = direct_rubric_config(None, Some("toml-codex-acp".to_string()));
+        assert_eq!(config.codex_acp_binary, PathBuf::from("toml-codex-acp"));
+        assert!(config.acp_args.is_empty());
+
+        let config = direct_rubric_config(None, None);
+        assert_eq!(config.codex_acp_binary, PathBuf::from("codex-acp"));
+        assert!(config.acp_args.is_empty());
+    }
+
+    #[test]
+    fn parses_full_configured_toml_schema() {
+        let config: TomlConfig = toml::from_str(
+            r#"
+mode = "pipeline"
+
+[vision]
+url = "http://localhost:8013"
+model = "qwen3-vl-8b"
+api_key = "secret"
+prompt = "Describe this UI."
+
+[rubric]
+backend = "opencode"
+args = ["acp", "--debug"]
+model = "deepseek-v4"
+effort = "high"
+system_prompt = "Return strict rubric JSON."
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(config.mode, Some(ConfiguredMode::Pipeline));
+        assert_eq!(config.vision.url.as_deref(), Some("http://localhost:8013"));
+        assert_eq!(config.vision.model.as_deref(), Some("qwen3-vl-8b"));
+        assert_eq!(config.vision.api_key.as_deref(), Some("secret"));
+        assert_eq!(config.vision.prompt.as_deref(), Some("Describe this UI."));
+        assert_eq!(config.rubric.backend.as_deref(), Some("opencode"));
+        assert_eq!(
+            config.rubric.args.as_deref(),
+            Some(["acp".to_string(), "--debug".to_string()].as_slice())
+        );
+        assert_eq!(config.rubric.model.as_deref(), Some("deepseek-v4"));
+        assert_eq!(config.rubric.effort.as_deref(), Some("high"));
+        assert_eq!(
+            config.rubric.system_prompt.as_deref(),
+            Some("Return strict rubric JSON.")
+        );
     }
 
     #[test]

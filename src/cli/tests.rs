@@ -1,5 +1,4 @@
-#[cfg(unix)]
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 #[cfg(unix)]
@@ -402,6 +401,99 @@ fn static_path_resolution_and_content_types_are_strict() {
         super::content_type(&root.join("data.json")),
         "application/json; charset=utf-8"
     );
+}
+
+#[test]
+fn static_server_serves_get_head_and_decoded_paths() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let public = temp.path().join("public");
+    std::fs::create_dir_all(public.join("assets")).unwrap();
+    std::fs::write(public.join("index.html"), "<h1>Install</h1>").unwrap();
+    std::fs::write(public.join("style.css"), "body{color:#111}").unwrap();
+    std::fs::write(public.join("assets").join("app.js"), "console.log('ok');").unwrap();
+    let server = super::StaticServer::start(public, 0).unwrap();
+
+    let response = http_request(&server, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    let (headers, body) = split_response(&response);
+    assert!(headers.starts_with("HTTP/1.1 200 OK"));
+    assert!(headers.contains("Content-Type: text/html; charset=utf-8"));
+    assert!(headers.contains("Content-Length: 16"));
+    assert_eq!(body, "<h1>Install</h1>");
+
+    let response = http_request(
+        &server,
+        "HEAD /style.css HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    );
+    let (headers, body) = split_response(&response);
+    assert!(headers.starts_with("HTTP/1.1 200 OK"));
+    assert!(headers.contains("Content-Type: text/css; charset=utf-8"));
+    assert!(headers.contains("Content-Length: 16"));
+    assert_eq!(body, "");
+
+    let response = http_request(
+        &server,
+        "GET /assets%2Fapp.js?cache=1 HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    );
+    let (headers, body) = split_response(&response);
+    assert!(headers.starts_with("HTTP/1.1 200 OK"));
+    assert!(headers.contains("Content-Type: text/javascript; charset=utf-8"));
+    assert!(headers.contains("Content-Length: 18"));
+    assert_eq!(body, "console.log('ok');");
+}
+
+#[test]
+fn static_server_returns_errors_for_missing_method_and_traversal() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let public = temp.path().join("public");
+    std::fs::create_dir_all(&public).unwrap();
+    std::fs::write(public.join("index.html"), "<h1>Install</h1>").unwrap();
+    let server = super::StaticServer::start(public, 0).unwrap();
+
+    let response = http_request(
+        &server,
+        "GET /missing.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    );
+    let (headers, body) = split_response(&response);
+    assert!(headers.starts_with("HTTP/1.1 404 Not Found"));
+    assert!(headers.contains("Content-Type: text/plain; charset=utf-8"));
+    assert!(headers.contains("Content-Length: 9"));
+    assert_eq!(body, "not found");
+
+    let response = http_request(&server, "POST / HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    let (headers, body) = split_response(&response);
+    assert!(headers.starts_with("HTTP/1.1 405 Method Not Allowed"));
+    assert!(headers.contains("Content-Type: text/plain"));
+    assert!(headers.contains("Content-Length: 18"));
+    assert_eq!(body, "method not allowed");
+
+    let response = http_request(
+        &server,
+        "GET /%2e%2e/secret.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
+    );
+    let (headers, body) = split_response(&response);
+    assert!(headers.starts_with("HTTP/1.1 404 Not Found"));
+    assert_eq!(body, "not found");
+}
+
+fn http_request(server: &super::StaticServer, request: &str) -> String {
+    let port = server
+        .base_url()
+        .strip_prefix("http://127.0.0.1:")
+        .and_then(|url| url.strip_suffix('/'))
+        .expect("static server base URL should include localhost port")
+        .parse::<u16>()
+        .expect("static server port should parse");
+    let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    response
+}
+
+fn split_response(response: &str) -> (&str, &str) {
+    response
+        .split_once("\r\n\r\n")
+        .expect("HTTP response should contain header terminator")
 }
 
 #[cfg(unix)]
