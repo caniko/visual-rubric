@@ -44,6 +44,7 @@
         withRustAnalyzer = false;
         crossTargets = [];
       };
+      cross = rs-harbor.lib.mkCross {inherit pkgs system;};
       inherit (toolchain) craneLib;
 
       src = craneLib.cleanCargoSource ./.;
@@ -87,16 +88,30 @@
           });
         fmt = craneLib.cargoFmt {inherit src;};
       };
-      devShells.default = craneLib.devShell {
-        checks = self.checks.${system};
-        packages = with pkgs;
-          [
-            cargo-nextest
+      devShells = {
+        default = craneLib.devShell {
+          checks = self.checks.${system};
+          packages = with pkgs;
+            [
+              cargo-nextest
+              pre-commit
+              rust-analyzer
+            ]
+            ++ pre-commit-check.enabledPackages;
+          shellHook = pre-commit-check.shellHook;
+        };
+
+        docs = rs-harbor.lib.mkDocsShell {
+          inherit pkgs cross;
+          inherit (toolchain) craneLib;
+          checks = self.checks.${system};
+          packages = with pkgs; [
+            plinth.packages.${system}.plinth-project
             pre-commit
             rust-analyzer
-          ]
-          ++ pre-commit-check.enabledPackages;
-        shellHook = pre-commit-check.shellHook;
+          ] ++ pre-commit-check.enabledPackages;
+          extraShellHook = pre-commit-check.shellHook;
+        };
       };
     });
 }
