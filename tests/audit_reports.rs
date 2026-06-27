@@ -1,3 +1,5 @@
+#![cfg(feature = "audit")]
+
 mod common;
 
 use std::process::Command;

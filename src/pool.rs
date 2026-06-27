@@ -9,16 +9,20 @@ use std::time::Duration;
 use rand::RngExt as _;
 use tempfile::TempDir;
 
+#[cfg(feature = "codex-acp")]
 mod codex_home;
 mod config;
 
 pub use config::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats};
 
 use crate::{
-    AcpClient, DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, DEFAULT_SYSTEM_PROMPT,
-    PoolError, RateLimitEvent, RubricOptions, RubricVerdict, build_codex_acp_args, encode_png,
+    AcpClient, DEFAULT_SYSTEM_PROMPT,
+    PoolError, RateLimitEvent, RubricOptions, RubricVerdict, encode_png,
     parse_verdict,
 };
+#[cfg(feature = "codex-acp")]
+use crate::{DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, build_codex_acp_args};
+#[cfg(feature = "codex-acp")]
 use codex_home::seed_codex_home;
 
 const RECYCLE_SPAWN_ATTEMPTS: u32 = 2;
@@ -215,7 +219,7 @@ struct Worker {
 
 struct WorkerRuntime {
     acp: AcpClient,
-    _codex_home: TempDir,
+    _codex_home: Option<TempDir>,
     prompts: u32,
     model: String,
     effort: String,
@@ -336,36 +340,13 @@ impl Worker {
     }
 
     fn spawn_runtime(&self, options: &RubricOptions) -> Result<WorkerRuntime, PoolError> {
-        let codex_home =
-            TempDir::new().map_err(|e| PoolError::Spawn(format!("create CODEX_HOME: {e}")))?;
-        seed_codex_home(codex_home.path(), self.config.source_codex_home.as_deref())?;
         let mut env = self.config.extra_env.clone();
-        env.push((
-            OsString::from("CODEX_HOME"),
-            codex_home.path().as_os_str().to_os_string(),
-        ));
-        if let Some(log_capture) = &self.config.log_capture {
-            fs::create_dir_all(&log_capture.temp_dir).map_err(|e| {
-                PoolError::Spawn(format!(
-                    "create ACP TMPDIR {}: {e}",
-                    log_capture.temp_dir.display()
-                ))
-            })?;
-            env.push((
-                OsString::from("TMPDIR"),
-                log_capture.temp_dir.as_os_str().to_os_string(),
-            ));
-        }
 
-        let model = options
-            .model
-            .as_deref()
-            .map_or(DEFAULT_CODEX_ACP_MODEL, |model| model);
-        let effort = options
-            .effort
-            .as_deref()
-            .map_or(DEFAULT_CODEX_ACP_REASONING_EFFORT, |effort| effort);
-        let acp_args = build_codex_acp_args(model, effort);
+        let codex_home = self.maybe_seed_codex_home(&mut env)?;
+        self.maybe_setup_log_capture(&mut env)?;
+
+        let (model, effort) = self.resolve_model_effort(options);
+        let acp_args = self.resolve_acp_args(options);
         let mut acp = AcpClient::spawn(&self.config.codex_acp_binary, &acp_args, &env, None)?;
         acp.start_session(None)?;
 
@@ -378,6 +359,69 @@ impl Worker {
         })
     }
 
+    fn resolve_model_effort<'a>(&self, options: &'a RubricOptions) -> (&'a str, &'a str) {
+        let model = options.model.as_deref().unwrap_or({
+            #[cfg(feature = "codex-acp")]
+            { DEFAULT_CODEX_ACP_MODEL }
+            #[cfg(not(feature = "codex-acp"))]
+            { "default" }
+        });
+        let effort = options.effort.as_deref().unwrap_or({
+            #[cfg(feature = "codex-acp")]
+            { DEFAULT_CODEX_ACP_REASONING_EFFORT }
+            #[cfg(not(feature = "codex-acp"))]
+            { "default" }
+        });
+        (model, effort)
+    }
+
+    fn resolve_acp_args(&self, _options: &RubricOptions) -> Vec<String> {
+        if !self.config.acp_args.is_empty() {
+            return self.config.acp_args.clone();
+        }
+        #[cfg(feature = "codex-acp")]
+        {
+            let model = _options.model.as_deref().map_or(DEFAULT_CODEX_ACP_MODEL, |m| m);
+            let effort = _options.effort.as_deref().map_or(DEFAULT_CODEX_ACP_REASONING_EFFORT, |e| e);
+            build_codex_acp_args(model, effort)
+        }
+        #[cfg(not(feature = "codex-acp"))]
+        vec!["acp".to_string()]
+    }
+
+    #[allow(unused_variables, clippy::ptr_arg)]
+    fn maybe_seed_codex_home(&self, env: &mut Vec<(OsString, OsString)>) -> Result<Option<TempDir>, PoolError> {
+        #[cfg(feature = "codex-acp")]
+        {
+            let codex_home =
+                TempDir::new().map_err(|e| PoolError::Spawn(format!("create CODEX_HOME: {e}")))?;
+            seed_codex_home(codex_home.path(), self.config.source_codex_home.as_deref())?;
+            env.push((
+                OsString::from("CODEX_HOME"),
+                codex_home.path().as_os_str().to_os_string(),
+            ));
+            Ok(Some(codex_home))
+        }
+        #[cfg(not(feature = "codex-acp"))]
+        Ok(None)
+    }
+
+    fn maybe_setup_log_capture(&self, env: &mut Vec<(OsString, OsString)>) -> Result<(), PoolError> {
+        if let Some(log_capture) = &self.config.log_capture {
+            fs::create_dir_all(&log_capture.temp_dir).map_err(|e| {
+                PoolError::Spawn(format!(
+                    "create ACP TMPDIR {}: {e}",
+                    log_capture.temp_dir.display()
+                ))
+            })?;
+            env.push((
+                OsString::from("TMPDIR"),
+                log_capture.temp_dir.as_os_str().to_os_string(),
+            ));
+        }
+        Ok(())
+    }
+
     fn mark_dead(&self) {
         self.shared
             .alive_mask
@@ -387,8 +431,11 @@ impl Worker {
 
 impl WorkerRuntime {
     fn matches_options(&self, options: &RubricOptions) -> bool {
-        options.model.as_deref() == Some(self.model.as_str())
-            && options.effort.as_deref() == Some(self.effort.as_str())
+        let model_ok = !cfg!(feature = "codex-acp")
+            || options.model.as_deref() == Some(self.model.as_str());
+        let effort_ok = !cfg!(feature = "codex-acp")
+            || options.effort.as_deref() == Some(self.effort.as_str());
+        model_ok && effort_ok
     }
 }
 

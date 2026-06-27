@@ -1,3 +1,5 @@
+#![cfg(feature = "pool")]
+
 mod common;
 
 use std::ffi::OsString;
@@ -178,6 +180,7 @@ fn missing_png_path_is_reported() {
     let _ = pool.shutdown();
 }
 
+#[cfg(feature = "codex-acp")]
 #[test]
 fn worker_codex_home_is_seeded_from_source_home() {
     let Some(fake) = common::fake_codex_acp_binary() else {

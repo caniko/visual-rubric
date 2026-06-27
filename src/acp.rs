@@ -1,3 +1,5 @@
+#![cfg(feature = "acp")]
+
 use std::ffi::{OsStr, OsString};
 use std::io::{BufRead as _, BufReader, Write as _};
 use std::path::Path;
@@ -98,6 +100,7 @@ impl AcpClient {
         Ok(())
     }
 
+    #[cfg(any(feature = "codex-acp", feature = "pool"))]
     pub(crate) fn prompt_image(
         &mut self,
         prompt: &str,
@@ -121,6 +124,7 @@ impl AcpClient {
         )
     }
 
+    #[cfg(feature = "pipeline")]
     pub(crate) fn prompt_text(&mut self, prompt: &str) -> Result<String, PoolError> {
         let session_id = self
             .session_id
@@ -285,6 +289,7 @@ fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
 
 /// Builds the default CLI arguments for the codex-acp binary from a model
 /// name and reasoning effort.
+#[cfg(feature = "codex-acp")]
 #[must_use]
 pub fn build_codex_acp_args(model: &str, effort: &str) -> Vec<String> {
     vec![

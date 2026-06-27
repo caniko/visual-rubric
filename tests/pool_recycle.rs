@@ -1,3 +1,5 @@
+#![cfg(feature = "pool")]
+
 mod common;
 
 use std::ffi::OsString;

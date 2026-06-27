@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(feature = "codex-acp")]
 #[test]
 fn default_options_use_documented_defaults() {
     let options = default_options();
@@ -114,4 +115,58 @@ fn parse_verdict_extracts_json_when_strings_contain_braces() {
 
     assert_eq!(verdict.verdict, "fail");
     assert_eq!(verdict.reason, "selector {main} overlaps");
+}
+
+#[test]
+fn parse_verdict_repairs_unquoted_key() {
+    let verdict = parse_verdict(
+        r#"{
+            "verdict": "fail",
+            "reason": "test",
+            "anomalies": [
+                {
+                    "type": "visual_issue",
+                description": "missing opening quote",
+                    "position": "bottom-right"
+                }
+            ]
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(verdict.verdict, "fail");
+    assert_eq!(verdict.anomalies.len(), 1);
+    assert!(verdict.anomalies[0].contains("missing opening quote"));
+}
+
+#[test]
+fn parse_verdict_repairs_trailing_comma() {
+    let verdict = parse_verdict(
+        r#"{
+            "verdict": "pass",
+            "reason": "looks good",
+            "anomalies": ["small issue",]
+        }"#,
+    )
+    .unwrap();
+    assert!(verdict.verdict.is_pass());
+    assert_eq!(verdict.anomalies, vec!["small issue"]);
+}
+
+#[test]
+fn parse_verdict_repairs_full_text() {
+    let input = r#"{
+  "verdict": "fail",
+  "reason": "test",
+  "anomalies": [
+    {
+      "type": "visual_issue",
+    description": "missing quote",
+      "position": "bottom-right"
+    }
+  ]
+}"#;
+    let verdict = parse_verdict(input).unwrap();
+    assert_eq!(verdict.verdict, "fail");
+    assert_eq!(verdict.anomalies.len(), 1);
+    assert!(verdict.anomalies[0].contains("missing quote"));
 }

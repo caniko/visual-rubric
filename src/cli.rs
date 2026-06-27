@@ -2,22 +2,28 @@
 
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result, anyhow};
+#[cfg(feature = "codex-acp")]
+use anyhow::Context as _;
+use anyhow::{Result, anyhow};
 use clap::{Args, Parser, Subcommand};
 
 use crate::presets::PresetError;
 
+#[cfg(feature = "audit")]
 mod audit;
 pub mod configured;
+#[cfg(feature = "pipeline")]
 pub mod pipeline;
 mod static_server;
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-use audit::RubricReport;
+#[cfg(feature = "audit")]
 use audit::run_audit;
+#[cfg(feature = "audit")]
 pub use audit::{AuditReport, AuditStatus};
+#[cfg(all(test, feature = "audit"))]
+use audit::RubricReport;
 use static_server::StaticServer;
 #[cfg(test)]
 use static_server::{content_type, resolve_static_path};
@@ -33,10 +39,13 @@ pub struct Cli {
 }
 
 #[derive(Debug, Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Evaluate one screenshot.
+    #[cfg(feature = "codex-acp")]
     Image(ImageArgs),
     /// Host a local static site, capture screenshots, and evaluate them.
+    #[cfg(feature = "audit")]
     Audit(AuditArgs),
     /// Serve a local static directory for manual browser testing.
     Serve(ServeArgs),
@@ -46,6 +55,7 @@ enum Commands {
     /// (e.g. Qwen VL via llama-swap) producing structured JSON.
     /// Stage 2 sends that description to an ACP backend (opencode with
     /// DeepSeek V4, or codex-acp) for the final rubric verdict.
+    #[cfg(feature = "pipeline")]
     Pipeline(pipeline::PipelineArgs),
     /// Pipeline configured via a TOML file written by the HM module.
     ///
@@ -69,6 +79,7 @@ struct LegacyImageArgs {
     model: Option<String>,
     #[arg(long)]
     effort: Option<String>,
+    #[cfg(feature = "codex-acp")]
     #[arg(long)]
     codex_acp: Option<PathBuf>,
     #[arg(long, default_value = "vnc-screenshot")]
@@ -77,6 +88,7 @@ struct LegacyImageArgs {
     json: bool,
 }
 
+#[cfg(feature = "codex-acp")]
 #[derive(Clone, Debug, Parser)]
 struct ImageArgs {
     #[arg(long)]
@@ -97,6 +109,7 @@ struct ImageArgs {
     json: bool,
 }
 
+#[cfg(feature = "audit")]
 #[derive(Clone, Debug, Parser)]
 struct AuditArgs {
     /// Static site root to serve.
@@ -158,6 +171,7 @@ struct ServeArgs {
     port: u16,
 }
 
+#[cfg(feature = "audit")]
 #[derive(Clone, Debug)]
 struct ViewportArg {
     name: String,
@@ -224,15 +238,22 @@ impl QuestionSource {
 /// Returns command, IO, browser, ACP, or rubric audit failures.
 pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
+        #[cfg(feature = "codex-acp")]
         Some(Commands::Image(args)) => run_image(args),
+        #[cfg(feature = "audit")]
         Some(Commands::Audit(args)) => run_audit(args),
         Some(Commands::Serve(args)) => run_serve(args),
+        #[cfg(feature = "pipeline")]
         Some(Commands::Pipeline(args)) => pipeline::run_pipeline(args),
         Some(Commands::Configured(args)) => configured::run_configured(args),
+        #[cfg(feature = "codex-acp")]
         None => run_image(cli.image.try_into()?),
+        #[cfg(not(feature = "codex-acp"))]
+        None => Err(anyhow!("no subcommand given; use --help for available commands")),
     }
 }
 
+#[cfg(feature = "codex-acp")]
 fn run_image(args: ImageArgs) -> Result<()> {
     let verdict = evaluate_image(&args)?;
     if args.json {
@@ -250,6 +271,7 @@ fn run_serve(args: ServeArgs) -> Result<()> {
     server.wait_forever()
 }
 
+#[cfg(feature = "codex-acp")]
 fn evaluate_image(args: &ImageArgs) -> Result<crate::RubricVerdict> {
     let question = args.questions.resolve().map_err(|e| anyhow!(e))?;
     let system_prompt = match args.system_prompt.clone() {
@@ -280,6 +302,7 @@ fn evaluate_image(args: &ImageArgs) -> Result<crate::RubricVerdict> {
     }
 }
 
+#[cfg(feature = "codex-acp")]
 fn merge_with_defaults(mut options: crate::RubricOptions) -> crate::RubricOptions {
     let defaults = crate::default_options();
     if options.model.is_none() {
@@ -294,6 +317,7 @@ fn merge_with_defaults(mut options: crate::RubricOptions) -> crate::RubricOption
     options
 }
 
+#[cfg(feature = "codex-acp")]
 impl TryFrom<LegacyImageArgs> for ImageArgs {
     type Error = anyhow::Error;
 
@@ -321,6 +345,7 @@ impl TryFrom<LegacyImageArgs> for ImageArgs {
     }
 }
 
+#[cfg(feature = "audit")]
 impl std::str::FromStr for ViewportArg {
     type Err = anyhow::Error;
 

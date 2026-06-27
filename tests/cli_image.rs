@@ -1,3 +1,5 @@
+#![cfg(feature = "codex-acp")]
+
 mod common;
 
 use std::ffi::OsString;
@@ -122,6 +124,8 @@ fn public_api_accepts_custom_binary_env_and_cwd() {
         RubricRunConfig {
             codex_acp_binary: fake,
             acp_args: build_codex_acp_args("gpt-5.4-mini", "medium"),
+            url: None,
+            api_model: None,
             extra_env: vec![
                 (
                     OsString::from("FAKE_CODEX_ACP_MODE"),
@@ -173,6 +177,8 @@ fn public_api_forwards_custom_acp_args() {
         RubricRunConfig {
             codex_acp_binary: fake,
             acp_args: vec!["acp".to_string()],
+            url: None,
+            api_model: None,
             extra_env: vec![
                 (
                     OsString::from("FAKE_CODEX_ACP_MODE"),

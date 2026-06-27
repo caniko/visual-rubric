@@ -6,14 +6,23 @@
 //! It also provides a two-stage pipeline: vision model extraction via an
 //! OpenAI-compatible HTTP API, then rubric scoring via ACP.
 #![warn(missing_docs)]
+#![allow(
+    clippy::io_other_error,
+    clippy::manual_checked_ops,
+    clippy::single_match,
+)]
 
+#[cfg(feature = "acp")]
 mod acp;
+#[cfg(feature = "batch")]
 mod batch;
 pub mod cli;
 mod errors;
+#[cfg(feature = "pool")]
 mod pool;
 pub mod presets;
 mod typed_strings;
+#[cfg(any(feature = "vision-api", feature = "http-rubric"))]
 pub mod vision;
 
 use std::ffi::OsString;
@@ -22,10 +31,14 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "acp")]
 use acp::AcpClient;
+#[cfg(any(feature = "vision-api", feature = "http-rubric"))]
 use vision::VisionApiConfig;
 
+#[cfg(feature = "codex-acp")]
 pub use acp::build_codex_acp_args;
+#[cfg(feature = "batch")]
 pub use batch::{
     AggregateStatus, AssetChange, AssetRubricReport, AssetRubricResult, AssetSnapshot,
     BatchRubricConfig, BatchRubricReport, BatchRubricRun, IssueClassificationInput,
@@ -34,6 +47,7 @@ pub use batch::{
 };
 pub use cli::Cli;
 pub use errors::{PoolError, RateLimitEvent, RubricError};
+#[cfg(feature = "pool")]
 pub use pool::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats, RubricPool};
 pub use typed_strings::{RubricEffort, RubricVerdictStatus};
 
@@ -49,6 +63,129 @@ pub struct RubricVerdict {
     pub anomalies: Vec<String>,
 }
 
+/// Result from evaluating one page screenshot.
+#[derive(Clone, Debug, Serialize)]
+pub struct PageResult {
+    /// Human-readable label (e.g. `search`, `entity_plan`).
+    pub label: String,
+    /// Route or URL that was screenshotted.
+    pub route: Option<String>,
+    /// Viewport dimensions (width, height) when set.
+    pub viewport: Option<(u64, u64)>,
+    /// Absolute path to the saved PNG screenshot.
+    pub screenshot_path: PathBuf,
+    /// Text description produced by the vision model.
+    pub vision_description: String,
+    /// Rubric verdict from the ACP model.
+    pub verdict: RubricVerdict,
+}
+
+/// LLM-optimized report aggregating multiple page evaluations.
+#[derive(Clone, Debug, Serialize)]
+pub struct RubricReport {
+    /// ISO 8601 timestamp when the report was generated.
+    pub generated_at: String,
+    /// Project-level description context.
+    pub context: String,
+    /// Sorted list of page-level results.
+    pub pages: Vec<PageResult>,
+    /// Number of passed pages.
+    pub passed: usize,
+    /// Number of failed pages.
+    pub failed: usize,
+    /// Total pages evaluated.
+    pub total: usize,
+}
+
+impl RubricReport {
+    /// Build a report from page results and render it.
+    pub fn from_pages(context: &str, pages: Vec<PageResult>) -> Self {
+        let total = pages.len();
+        let passed = pages.iter().filter(|p| p.verdict.verdict.is_pass()).count();
+        let failed = total - passed;
+        let generated_at = {
+            let dur = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default();
+            format!("{:?}", dur.as_secs())
+        };
+        Self { generated_at, context: context.to_string(), pages, passed, failed, total }
+    }
+
+    /// Render the report as LLM-optimized structured markdown.
+    pub fn to_markdown(&self) -> String {
+        let mut md = String::new();
+        md.push_str("# Visual Rubric Report\n\n");
+        md.push_str(&format!("Generated: {}\n\n", self.generated_at));
+        md.push_str(&format!("{}\n\n", self.context));
+        md.push_str("## Summary\n\n");
+        md.push_str(&format!("- **Total pages**: {}\n", self.total));
+        md.push_str(&format!("- **Passed**: {}\n", self.passed));
+        md.push_str(&format!("- **Failed**: {}\n", self.failed));
+        md.push_str(&format!("- **Pass rate**: {}%\n\n", if self.total > 0 { (self.passed * 100) / self.total } else { 0 }));
+
+        // Defect count grouping
+        let mut anomaly_counts: std::collections::BTreeMap<String, Vec<&str>> = std::collections::BTreeMap::new();
+        for page in &self.pages {
+            for anomaly in &page.verdict.anomalies {
+                let key = anomaly.split('.').next().unwrap_or(anomaly).to_string();
+                anomaly_counts.entry(key).or_default().push(&page.label);
+            }
+        }
+        if !anomaly_counts.is_empty() {
+            md.push_str("### Defect Patterns\n\n");
+            md.push_str("| Pattern | Count | Pages |\n");
+            md.push_str("|---------|-------|-------|\n");
+            for (pattern, labels) in &anomaly_counts {
+                let pages_list = labels.iter().map(|l| format!("`{}`", l)).collect::<Vec<_>>().join(", ");
+                md.push_str(&format!("| {} | {} | {} |\n", pattern, labels.len(), pages_list));
+            }
+            md.push('\n');
+        }
+
+        // Per-page details
+        for page in &self.pages {
+            let status = if page.verdict.verdict.is_pass() { "PASS" } else { "FAIL" };
+            md.push_str(&format!("---\n\n### {}: {}\n\n", status, page.label));
+            if let Some(ref route) = page.route {
+                md.push_str(&format!("**Route:** `{}`\n\n", route));
+            }
+            md.push_str(&format!("**Screenshot:** `{}`\n\n", page.screenshot_path.display()));
+            if let Some((w, h)) = page.viewport {
+                md.push_str(&format!("**Viewport:** {}×{}\n\n", w, h));
+            }
+            md.push_str("**Vision Description:**\n\n");
+            md.push_str(&format!("> {}\n\n", page.vision_description.replace('\n', "\n> ")));
+            md.push_str(&format!("**Rubric Result:** {}\n\n", status));
+            md.push_str(&format!("**Reason:** {}\n\n", page.verdict.reason));
+            if !page.verdict.anomalies.is_empty() {
+                md.push_str("**Anomalies:**\n");
+                for a in &page.verdict.anomalies {
+                    md.push_str(&format!("- {}\n", a));
+                }
+                md.push('\n');
+            }
+        }
+        md
+    }
+
+    /// Render the report as JSON.
+    pub fn to_json(&self) -> serde_json::Result<String> {
+        serde_json::to_string_pretty(self)
+    }
+
+    /// Write markdown report to `path`.
+    pub fn save_markdown(&self, path: &Path) -> std::io::Result<()> {
+        std::fs::write(path, self.to_markdown())
+    }
+
+    /// Write JSON report to `path`.
+    pub fn save_json(&self, path: &Path) -> std::io::Result<()> {
+        let json = self.to_json().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        std::fs::write(path, json)
+    }
+}
+
 /// Optional model settings for one rubric request.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 pub struct RubricOptions {
@@ -60,7 +197,14 @@ pub struct RubricOptions {
     pub system_prompt: Option<String>,
 }
 
-/// Runtime configuration for direct ACP calls.
+/// Runtime configuration for rubric evaluation.
+///
+/// Supports two backends:
+/// - **HTTP** (via `url`): calls an OpenAI-compatible text model endpoint.
+/// - **ACP** (via `codex_acp_binary`): spawns an ACP child process.
+///
+/// When `url` is `Some`, the pipeline uses the HTTP backend and ignores ACP
+/// fields.  When `url` is `None`, the pipeline falls back to ACP.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RubricRunConfig {
     /// Path to the ACP binary (e.g. `codex-acp` or `opencode`).
@@ -69,6 +213,12 @@ pub struct RubricRunConfig {
     /// Defaults to `["-c", "model=...", "-c", "model_reasoning_effort=..."]`
     /// for codex-acp. For opencode use `["acp"]`.
     pub acp_args: Vec<String>,
+    /// HTTP rubric API base URL (e.g. `"http://127.0.0.1:8013"`).
+    /// When set, the pipeline calls an OpenAI-compatible text model
+    /// directly instead of spawning an ACP child process.
+    pub url: Option<String>,
+    /// Model name for the HTTP rubric backend (ignored when `url` is `None`).
+    pub api_model: Option<String>,
     /// Extra environment variables for the child process.
     pub extra_env: Vec<(OsString, OsString)>,
     /// Working directory passed to ACP.
@@ -78,13 +228,50 @@ pub struct RubricRunConfig {
 impl Default for RubricRunConfig {
     fn default() -> Self {
         Self {
-            codex_acp_binary: default_codex_acp_binary(),
+            #[cfg(feature = "codex-acp")]
+            codex_acp_binary: PathBuf::from("codex-acp"),
+            #[cfg(not(feature = "codex-acp"))]
+            codex_acp_binary: PathBuf::from("opencode"),
+            #[cfg(feature = "codex-acp")]
             acp_args: build_codex_acp_args(
                 DEFAULT_CODEX_ACP_MODEL,
                 DEFAULT_CODEX_ACP_REASONING_EFFORT,
             ),
+            #[cfg(not(feature = "codex-acp"))]
+            acp_args: vec!["acp".to_string()],
+            url: None,
+            api_model: None,
             extra_env: Vec::new(),
             cwd: None,
+        }
+    }
+}
+
+impl RubricRunConfig {
+    /// Build a `RubricRunConfig` from the Home-Manager-managed TOML file.
+    ///
+    /// Reads `~/.config/visual-rubric/config.toml` (or an explicit
+    /// `path`) and extracts the `[rubric]` section: `backend` becomes
+    /// `codex_acp_binary`, `args` becomes `acp_args`.
+    ///
+    /// In `pipeline` mode the vision config is ignored — this method only
+    /// populates the rubric/ACP fields.  When the file is missing or
+    /// unreadable, returns the library [`Default`].
+    pub fn from_config_toml(path: Option<&Path>) -> Self {
+        let toml = match load_config_toml(path) {
+            Ok(c) => c,
+            Err(_) => return RubricRunConfig::default(),
+        };
+        let _mode = toml.mode.unwrap_or_default();
+        RubricRunConfig {
+            codex_acp_binary: toml.rubric.backend
+                .unwrap_or_else(|| "opencode".to_string())
+                .into(),
+            acp_args: toml.rubric.args
+                .unwrap_or_else(|| vec!["acp".to_string()]),
+            url: toml.rubric.url,
+            api_model: toml.rubric.model.clone(),
+            ..Default::default()
         }
     }
 }
@@ -95,14 +282,17 @@ impl Default for RubricRunConfig {
 pub const DEFAULT_SYSTEM_PROMPT: &str = presets::UI_REGRESSION_SYSTEM_PROMPT;
 
 /// Default Codex ACP model.
+#[cfg(feature = "codex-acp")]
 pub const DEFAULT_CODEX_ACP_MODEL: &str = "gpt-5.4-mini";
 /// Default Codex ACP reasoning effort.
+#[cfg(feature = "codex-acp")]
 pub const DEFAULT_CODEX_ACP_REASONING_EFFORT: &str = "medium";
 
 /// Default prompt for the vision extraction stage.
 ///
 /// Asks the vision model to describe the screenshot as structured JSON
 /// so a text-only rubric model (e.g. DeepSeek V4 via opencode) can score it.
+#[cfg(feature = "vision-api")]
 pub const DEFAULT_VISION_PROMPT: &str = "\
 You are a UI description engine. Given a screenshot, produce a structured JSON \
 description of all visible user interface elements, their text content, layout, \
@@ -110,6 +300,7 @@ and any visual issues (clipping, overlap, blank regions, contrast problems). \
 Output ONLY valid JSON with no additional text.";
 
 /// Returns the default rubric options.
+#[cfg(feature = "codex-acp")]
 #[must_use]
 pub fn default_options() -> RubricOptions {
     RubricOptions {
@@ -120,9 +311,114 @@ pub fn default_options() -> RubricOptions {
 }
 
 /// Returns the default Codex ACP executable name.
+#[cfg(feature = "codex-acp")]
 #[must_use]
 pub fn default_codex_acp_binary() -> PathBuf {
     PathBuf::from("codex-acp")
+}
+
+// ---------------------------------------------------------------------------
+// TOML configuration (shared with the `configured` CLI subcommand)
+// ---------------------------------------------------------------------------
+
+/// Backend mode read from `config.toml`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfigMode {
+    /// Direct screenshot evaluation through codex-acp.
+    Direct,
+    /// Vision extraction followed by rubric scoring.
+    #[default]
+    Pipeline,
+}
+
+/// Full shape of `~/.config/visual-rubric/config.toml`.
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+pub struct TomlConfig {
+    /// Top-level mode: `"direct"` or `"pipeline"`.
+    pub mode: Option<ConfigMode>,
+    /// `[vision]` section (used by pipeline mode only).
+    pub vision: TomlVision,
+    /// `[rubric]` section — binary, args, model, effort, system prompt.
+    pub rubric: TomlRubric,
+}
+
+/// `[vision]` section of the TOML config.
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+pub struct TomlVision {
+    /// Vision API base URL.
+    pub url: Option<String>,
+    /// Vision model name.
+    pub model: Option<String>,
+    /// Vision API key (Bearer token).
+    pub api_key: Option<String>,
+    /// Custom prompt for the vision extraction stage.
+    pub prompt: Option<String>,
+}
+
+/// `[rubric]` section of the TOML config.
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+pub struct TomlRubric {
+    /// ACP binary name or path (e.g. `"opencode"` or `"codex-acp"`).
+    pub backend: Option<String>,
+    /// Extra CLI arguments for the ACP binary (e.g. `["acp"]` for opencode).
+    pub args: Option<Vec<String>>,
+    /// HTTP rubric API base URL (e.g. `"http://127.0.0.1:8013"`).
+    /// When set, the pipeline uses a direct HTTP call to a text model
+    /// instead of spawning an ACP child process.
+    pub url: Option<String>,
+    /// Rubric model name (passed to codex-acp or used as the HTTP model).
+    pub model: Option<String>,
+    /// Rubric reasoning effort.
+    pub effort: Option<String>,
+    /// Rubric system prompt override.
+    pub system_prompt: Option<String>,
+}
+
+/// Load the TOML config from `path`, falling back to
+/// `$XDG_CONFIG_HOME/visual-rubric/config.toml` (or
+/// `$HOME/.config/visual-rubric/config.toml`).
+///
+/// Returns the default `TomlConfig` (empty optional fields) when the file
+/// is missing.
+pub fn load_config_toml(path: Option<&Path>) -> Result<TomlConfig, std::io::Error> {
+    let path = match path {
+        Some(p) => p.to_path_buf(),
+        None => match config_dir() {
+            Some(base) => base.join("visual-rubric/config.toml"),
+            None => return Ok(TomlConfig::default()),
+        },
+    };
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(TomlConfig::default());
+        }
+        Err(e) => return Err(e),
+    };
+    toml::from_str(&content)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+fn config_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "linux")]
+    {
+        std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .map(PathBuf::from)
+            .or_else(|| {
+                std::env::var("HOME")
+                    .ok()
+                    .map(|h| PathBuf::from(h).join(".config"))
+            })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        dirs::config_dir()
+    }
 }
 
 /// Reads and base64-encodes a PNG file.
@@ -142,6 +438,7 @@ pub fn encode_png(png_path: &Path) -> Result<String, PoolError> {
 ///
 /// Returns [`RubricError`] for PNG IO, ACP, JSON parsing, or failed
 /// assertion errors.
+#[cfg(feature = "codex-acp")]
 pub fn assert_image_rubric(png_path: &Path, name: &str, question: &str) -> Result<(), RubricError> {
     let verdict = evaluate_image_rubric(png_path, question)?;
     assert_verdict(name, verdict)
@@ -152,6 +449,7 @@ pub fn assert_image_rubric(png_path: &Path, name: &str, question: &str) -> Resul
 /// # Errors
 ///
 /// Returns [`RubricError`] for PNG IO, ACP, or verdict parsing failures.
+#[cfg(feature = "codex-acp")]
 pub fn evaluate_image_rubric(
     png_path: &Path,
     question: &str,
@@ -164,6 +462,7 @@ pub fn evaluate_image_rubric(
 /// # Errors
 ///
 /// Returns [`RubricError`] for PNG IO, ACP, or verdict parsing failures.
+#[cfg(feature = "codex-acp")]
 pub fn evaluate_image_rubric_with_options(
     png_path: &Path,
     question: &str,
@@ -177,6 +476,7 @@ pub fn evaluate_image_rubric_with_options(
 /// # Errors
 ///
 /// Returns [`RubricError`] for PNG IO, ACP, or verdict parsing failures.
+#[cfg(feature = "codex-acp")]
 pub fn evaluate_image_rubric_with_config(
     png_path: &Path,
     question: &str,
@@ -206,18 +506,57 @@ pub fn evaluate_image_rubric_with_config(
     parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
 }
 
+/// Runs the rubric step: either an HTTP call to a text model or ACP.
+///
+/// When `config.url` is set, posts `rubric_prompt` to an OpenAI-compatible
+/// text model.  Otherwise spawns an ACP child process.
+#[cfg(feature = "pipeline")]
+fn run_rubric_prompt(
+    rubric_prompt: &str,
+    config: &RubricRunConfig,
+) -> Result<String, RubricError> {
+    #[cfg(feature = "http-rubric")]
+    if let Some(ref url) = config.url {
+        let api_config = VisionApiConfig {
+            url: url.clone(),
+            model: config.api_model.clone().unwrap_or_default(),
+            api_key: None,
+        };
+        return vision::call_text_api(rubric_prompt, &api_config).map_err(RubricError::Pool);
+    }
+    #[cfg(feature = "acp")]
+    {
+        let mut acp = AcpClient::spawn(
+            &config.codex_acp_binary,
+            &config.acp_args,
+            &config.extra_env,
+            config.cwd.as_deref(),
+        )
+        .map_err(RubricError::Pool)?;
+        acp.start_session(config.cwd.as_deref())
+            .map_err(RubricError::Pool)?;
+        acp.prompt_text(rubric_prompt).map_err(RubricError::Pool)
+    }
+    #[cfg(not(feature = "acp"))]
+    Err(RubricError::Pool(PoolError::Spawn(
+        "no ACP backend enabled; enable 'acp' feature".to_string(),
+    )))
+}
+
 /// Two-stage pipeline evaluation: vision model → rubric model.
 ///
 /// Stage 1: Sends the screenshot to an OpenAI-compatible vision API and
 /// returns a structured JSON description.
 ///
-/// Stage 2: Sends the structured description (plus the rubric question) to
-/// the configured ACP backend for the final rubric verdict.
+/// Stage 2: When [`RubricRunConfig::url`] is set, sends the structured
+/// description (plus the rubric question) to an OpenAI-compatible text
+/// model.  Otherwise falls back to the configured ACP backend.
 ///
 /// # Errors
 ///
 /// Returns [`RubricError`] for PNG IO, vision API, ACP, or verdict parsing
 /// failures.
+#[cfg(feature = "pipeline")]
 pub fn evaluate_image_rubric_pipeline(
     png_path: &Path,
     question: &str,
@@ -242,22 +581,57 @@ pub fn evaluate_image_rubric_pipeline(
     let rubric_prompt =
         format!("{system_prompt}\n\nUI description:\n{structured}\n\nQuestion: {question}");
 
-    let mut acp = AcpClient::spawn(
-        &rubric_config.codex_acp_binary,
-        &rubric_config.acp_args,
-        &rubric_config.extra_env,
-        rubric_config.cwd.as_deref(),
-    )
-    .map_err(RubricError::Pool)?;
-    acp.start_session(rubric_config.cwd.as_deref())
-        .map_err(RubricError::Pool)?;
-
-    let text = acp.prompt_text(&rubric_prompt).map_err(RubricError::Pool)?;
+    let text = run_rubric_prompt(&rubric_prompt, rubric_config)?;
 
     parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
 }
 
+/// Like [`evaluate_image_rubric_pipeline`] but also returns the vision
+/// model's text description alongside the rubric verdict.
+///
+/// The first element of the tuple is the rubric verdict, the second is
+/// the structured UI description from the vision model.
+///
+/// # Errors
+///
+/// See [`evaluate_image_rubric_pipeline`].
+#[cfg(feature = "pipeline")]
+pub fn evaluate_image_rubric_pipeline_with_vision(
+    png_path: &Path,
+    question: &str,
+    vision_config: &VisionApiConfig,
+    vision_prompt: &str,
+    rubric_options: &RubricOptions,
+    rubric_config: &RubricRunConfig,
+) -> Result<(RubricVerdict, String), RubricError> {
+    let bytes = std::fs::read(png_path).map_err(|source| RubricError::ReadPng {
+        path: png_path.to_path_buf(),
+        source,
+    })?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+
+    let structured =
+        vision::call_vision_api(&b64, vision_prompt, vision_config).map_err(RubricError::Pool)?;
+
+    let system_prompt = rubric_options
+        .system_prompt
+        .as_deref()
+        .map_or(DEFAULT_SYSTEM_PROMPT, |system_prompt| system_prompt);
+    let rubric_prompt =
+        format!("{system_prompt}\n\nUI description:\n{structured}\n\nQuestion: {question}");
+
+    let text = run_rubric_prompt(&rubric_prompt, rubric_config)?;
+
+    let verdict = parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })?;
+    Ok((verdict, structured))
+}
+
 /// Parses strict rubric JSON into a typed verdict.
+///
+/// Tries the text as raw JSON first, then tries to extract a JSON object
+/// from surrounding text (e.g. markdown code blocks), and finally applies
+/// a lightweight repair pass for common model-output issues (missing
+/// opening quotes on keys, trailing commas before `]`/`}`).
 ///
 /// # Errors
 ///
@@ -265,12 +639,92 @@ pub fn evaluate_image_rubric_pipeline(
 /// unsupported verdict status.
 pub fn parse_verdict(text: &str) -> Result<RubricVerdict, serde_json::Error> {
     match serde_json::from_str(text) {
-        Ok(verdict) => Ok(verdict),
-        Err(source) => match extract_json_object(text) {
-            Some(json) => serde_json::from_str(json),
-            None => Err(source),
-        },
+        Ok(verdict) => return Ok(verdict),
+        Err(_) => {}
     }
+
+    // Try extracting a JSON object from surrounding noise (code blocks, etc.)
+    if let Some(json) = extract_json_object(text) {
+        if let Ok(verdict) = serde_json::from_str(json) {
+            return Ok(verdict);
+        }
+        // The object was found but the content is slightly malformed — try
+        // a lightweight repair pass for common model output quirks.
+        let repaired = repair_json(json);
+        if let Ok(verdict) = serde_json::from_str(&repaired) {
+            return Ok(verdict);
+        }
+    }
+
+    // Last resort: repair the full text directly.
+    let repaired = repair_json(text);
+    serde_json::from_str(&repaired)
+}
+
+/// Lightweight repair for common JSON formatting issues in model output.
+///
+/// Handles:
+/// 1. Unquoted object keys (`key":` → `"key":`)
+/// 2. Trailing commas before `]` or `}`
+fn repair_json(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let bytes = text.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        match bytes[i] as char {
+            '"' => {
+                out.push('"');
+                i += 1;
+                while i < len {
+                    let ch = bytes[i] as char;
+                    out.push(ch);
+                    i += 1;
+                    if ch == '\\' && i < len {
+                        out.push(bytes[i] as char);
+                        i += 1;
+                    } else if ch == '"' {
+                        break;
+                    }
+                }
+            }
+            c if c.is_ascii_alphabetic() || c == '_' => {
+                let start = i;
+                while i < len && ((bytes[i] as char).is_alphanumeric() || bytes[i] as char == '_') {
+                    i += 1;
+                }
+                let word = &text[start..i];
+                if i + 1 < len && bytes[i] as char == '"' && bytes[i + 1] as char == ':' {
+                    out.push('"');
+                    out.push_str(word);
+                    out.push('"');
+                    out.push(':');
+                    i += 2;
+                } else {
+                    out.push_str(word);
+                }
+            }
+            ',' => {
+                let mut j = i + 1;
+                while j < len && (bytes[j] as char).is_ascii_whitespace() {
+                    j += 1;
+                }
+                if j < len && matches!(bytes[j] as char, ']' | '}') {
+                    out.push(' ');
+                    i = j;
+                } else {
+                    out.push(',');
+                    i += 1;
+                }
+            }
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 fn extract_json_object(text: &str) -> Option<&str> {
@@ -363,6 +817,7 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     cli::run(cli)
 }
 
+#[cfg(feature = "codex-acp")]
 fn run_codex_acp_rubric(
     b64_png: &str,
     question: &str,
@@ -384,6 +839,7 @@ fn run_codex_acp_rubric(
     acp.prompt_image(&prompt, b64_png)
 }
 
+#[cfg(feature = "codex-acp")]
 fn effective_acp_args(config: &RubricRunConfig, model: &str, effort: &str) -> Vec<String> {
     if config.acp_args
         == build_codex_acp_args(DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT)
@@ -391,6 +847,158 @@ fn effective_acp_args(config: &RubricRunConfig, model: &str, effort: &str) -> Ve
         build_codex_acp_args(model, effort)
     } else {
         config.acp_args.clone()
+    }
+}
+
+/// Load configuration from `~/.config/visual-rubric/config.toml` and
+/// evaluate `png_path` against `question`.
+///
+/// In `pipeline` mode (the HM default) this routes through
+/// [`evaluate_image_rubric_pipeline`] so that a vision model extracts the
+/// UI description before the rubric model scores it.  In `direct` mode it
+/// sends the image straight to ACP via
+/// [`evaluate_image_rubric_with_config`].
+///
+/// When the TOML file is missing or unreadable this falls back to
+/// [`evaluate_image_rubric`] (direct `codex-acp` with defaults).
+pub fn evaluate_configured(
+    png_path: &Path,
+    question: &str,
+    options: &RubricOptions,
+) -> Result<RubricVerdict, RubricError> {
+    let toml = match load_config_toml(None) {
+        Ok(c) => c,
+        Err(_) => {
+            return evaluate_fallback(png_path, question, options);
+        }
+    };
+    let mode = toml.mode.unwrap_or_default();
+
+    match mode {
+        ConfigMode::Pipeline => {
+            #[cfg(feature = "pipeline")]
+            {
+                let vision_url = toml.vision.url.as_deref().unwrap_or("http://localhost:8013");
+                let vision_model = toml.vision.model.as_deref().unwrap_or("qwen3-vl-8b");
+                let vision_config = VisionApiConfig {
+                    url: vision_url.to_string(),
+                    model: vision_model.to_string(),
+                    api_key: toml.vision.api_key.clone(),
+                };
+                let vision_prompt = toml.vision.prompt.as_deref()
+                    .unwrap_or(DEFAULT_VISION_PROMPT);
+                let rubric_config = RubricRunConfig::from_config_toml(None);
+                evaluate_image_rubric_pipeline(
+                    png_path, question,
+                    &vision_config, vision_prompt,
+                    options, &rubric_config,
+                )
+            }
+            #[cfg(not(feature = "pipeline"))]
+            Err(RubricError::Pool(PoolError::Spawn(
+                "pipeline mode requires the 'pipeline' feature".to_string()
+            )))
+        }
+        ConfigMode::Direct => {
+            #[cfg(feature = "codex-acp")]
+            {
+                let rubric_config = RubricRunConfig {
+                    codex_acp_binary: toml.rubric.backend
+                        .unwrap_or_else(|| "codex-acp".to_string())
+                        .into(),
+                    ..Default::default()
+                };
+                evaluate_image_rubric_with_config(png_path, question, options.clone(), rubric_config)
+            }
+            #[cfg(not(feature = "codex-acp"))]
+            Err(RubricError::Pool(PoolError::Spawn(
+                "direct mode requires the 'codex-acp' feature".to_string()
+            )))
+        }
+    }
+}
+
+/// Like [`evaluate_configured`] but also returns the vision model's
+/// text description alongside the rubric verdict.
+///
+/// In `pipeline` mode this calls [`evaluate_image_rubric_pipeline_with_vision`]
+/// so the vision description is captured.  In `direct` mode the vision
+/// description is empty (the ACP model evaluates the image directly).
+pub fn evaluate_configured_with_vision(
+    png_path: &Path,
+    question: &str,
+    options: &RubricOptions,
+) -> Result<(RubricVerdict, String), RubricError> {
+    let toml = match load_config_toml(None) {
+        Ok(c) => c,
+        Err(_) => {
+            let verdict = evaluate_fallback(png_path, question, options)?;
+            return Ok((verdict, String::new()));
+        }
+    };
+    let mode = toml.mode.unwrap_or_default();
+
+    match mode {
+        ConfigMode::Pipeline => {
+            #[cfg(feature = "pipeline")]
+            {
+                let vision_url = toml.vision.url.as_deref().unwrap_or("http://localhost:8013");
+                let vision_model = toml.vision.model.as_deref().unwrap_or("qwen3-vl-8b");
+                let vision_config = VisionApiConfig {
+                    url: vision_url.to_string(),
+                    model: vision_model.to_string(),
+                    api_key: toml.vision.api_key.clone(),
+                };
+                let vision_prompt = toml.vision.prompt.as_deref()
+                    .unwrap_or(DEFAULT_VISION_PROMPT);
+                let rubric_config = RubricRunConfig::from_config_toml(None);
+                evaluate_image_rubric_pipeline_with_vision(
+                    png_path, question,
+                    &vision_config, vision_prompt,
+                    options, &rubric_config,
+                )
+            }
+            #[cfg(not(feature = "pipeline"))]
+            Err(RubricError::Pool(PoolError::Spawn(
+                "pipeline mode requires the 'pipeline' feature".to_string()
+            )))
+        }
+        ConfigMode::Direct => {
+            #[cfg(feature = "codex-acp")]
+            {
+                let rubric_config = RubricRunConfig {
+                    codex_acp_binary: toml.rubric.backend
+                        .unwrap_or_else(|| "codex-acp".to_string())
+                        .into(),
+                    ..Default::default()
+                };
+                let verdict = evaluate_image_rubric_with_config(png_path, question, options.clone(), rubric_config)?;
+                Ok((verdict, String::new()))
+            }
+            #[cfg(not(feature = "codex-acp"))]
+            Err(RubricError::Pool(PoolError::Spawn(
+                "direct mode requires the 'codex-acp' feature".to_string()
+            )))
+        }
+    }
+}
+
+fn evaluate_fallback(
+    #[allow(unused_variables)] png_path: &Path,
+    #[allow(unused_variables)] question: &str,
+    #[allow(unused_variables)] options: &RubricOptions,
+) -> Result<RubricVerdict, RubricError> {
+    #[cfg(feature = "codex-acp")]
+    {
+        evaluate_image_rubric_with_config(png_path, question, options.clone(), RubricRunConfig::default())
+    }
+    #[cfg(not(feature = "codex-acp"))]
+    {
+        Err(RubricError::Pool(PoolError::Spawn(
+            "no TOML config found and codex-acp feature is disabled; \
+             configure a TOML file or use a direct API call"
+                .to_string(),
+        )))
     }
 }
 

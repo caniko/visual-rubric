@@ -3,8 +3,13 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::{
-    DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, DEFAULT_SYSTEM_PROMPT,
-    RubricEffort, RubricOptions, default_codex_acp_binary,
+    DEFAULT_SYSTEM_PROMPT,
+    RubricOptions,
+};
+#[cfg(feature = "codex-acp")]
+use crate::{
+    DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, RubricEffort,
+    default_codex_acp_binary,
 };
 
 pub(super) const DEFAULT_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
@@ -24,13 +29,18 @@ pub struct PoolConfig {
     pub backoff_cap: Duration,
     /// Options applied when a submitted job omits an override.
     pub default_options: RubricOptions,
-    /// Path to the `codex-acp` executable.
+    /// Path to the ACP executable.
     pub codex_acp_binary: PathBuf,
+    /// Extra CLI arguments for the ACP binary.
+    /// When empty, defaults are used (codex-acp args with the feature on,
+    /// `["acp"]` with the feature off).
+    pub acp_args: Vec<String>,
     /// Extra environment variables for worker processes.
     pub extra_env: Vec<(OsString, OsString)>,
     /// Maximum time to wait for one submitted job.
     pub submit_timeout: Duration,
     /// Optional Codex home directory to seed into worker-local homes.
+    #[cfg(feature = "codex-acp")]
     pub source_codex_home: Option<PathBuf>,
     /// Optional ACP log capture directories.
     pub log_capture: Option<LogCaptureConfig>,
@@ -44,21 +54,37 @@ impl Default for PoolConfig {
             max_retries: 4,
             backoff_base: Duration::from_secs(30),
             backoff_cap: Duration::from_secs(300),
-            default_options: default_options(),
+            default_options: default_pool_options(),
+            #[cfg(feature = "codex-acp")]
             codex_acp_binary: default_codex_acp_binary(),
+            #[cfg(not(feature = "codex-acp"))]
+            codex_acp_binary: PathBuf::from("opencode"),
+            acp_args: Vec::new(),
             extra_env: Vec::new(),
             submit_timeout: DEFAULT_SUBMIT_TIMEOUT,
+            #[cfg(feature = "codex-acp")]
             source_codex_home: None,
             log_capture: None,
         }
     }
 }
 
-fn default_options() -> RubricOptions {
-    RubricOptions {
-        model: Some(DEFAULT_CODEX_ACP_MODEL.to_string()),
-        effort: Some(RubricEffort::from(DEFAULT_CODEX_ACP_REASONING_EFFORT)),
-        system_prompt: Some(DEFAULT_SYSTEM_PROMPT.to_string()),
+fn default_pool_options() -> RubricOptions {
+    #[cfg(feature = "codex-acp")]
+    {
+        RubricOptions {
+            model: Some(DEFAULT_CODEX_ACP_MODEL.to_string()),
+            effort: Some(RubricEffort::from(DEFAULT_CODEX_ACP_REASONING_EFFORT)),
+            system_prompt: Some(DEFAULT_SYSTEM_PROMPT.to_string()),
+        }
+    }
+    #[cfg(not(feature = "codex-acp"))]
+    {
+        RubricOptions {
+            model: None,
+            effort: None,
+            system_prompt: Some(DEFAULT_SYSTEM_PROMPT.to_string()),
+        }
     }
 }
 

@@ -1,16 +1,20 @@
 use std::io::{Read as _, Write as _};
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 use std::os::unix::fs::PermissionsExt as _;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use clap::Parser as _;
 
-use super::{
-    AuditReport, AuditStatus, Cli, Commands, ImageArgs, PathBuf, QuestionSource, configured, run,
-};
+use super::{Cli, Commands, PathBuf, QuestionSource};
+#[cfg(feature = "audit")]
+use super::run;
+#[cfg(feature = "audit")]
+use super::{AuditReport, AuditStatus};
+#[cfg(feature = "codex-acp")]
+use super::ImageArgs;
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 fn audit_test_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -18,6 +22,7 @@ fn audit_test_lock() -> MutexGuard<'static, ()> {
         .expect("audit test lock poisoned")
 }
 
+#[cfg(feature = "codex-acp")]
 #[test]
 fn parses_custom_system_prompt() {
     let cli = Cli::parse_from([
@@ -38,6 +43,7 @@ fn parses_custom_system_prompt() {
     assert!(image.json);
 }
 
+#[cfg(feature = "codex-acp")]
 #[test]
 fn parses_legacy_image_args() {
     let cli = Cli::parse_from([
@@ -52,6 +58,7 @@ fn parses_legacy_image_args() {
     assert_eq!(image.image, PathBuf::from("shot.png"));
 }
 
+#[cfg(feature = "codex-acp")]
 #[test]
 fn legacy_image_args_require_image_and_question() {
     let cli = Cli::parse_from(["visual-rubric", "--question", "Is it readable?"]);
@@ -66,6 +73,7 @@ fn legacy_image_args_require_image_and_question() {
     );
 }
 
+#[cfg(feature = "codex-acp")]
 #[test]
 fn parses_preset_flag_on_image_command() {
     let cli = Cli::parse_from([
@@ -83,6 +91,7 @@ fn parses_preset_flag_on_image_command() {
     assert!(image.questions.question.is_none());
 }
 
+#[cfg(feature = "codex-acp")]
 #[test]
 fn parses_legacy_preset_flag() {
     let cli = Cli::parse_from([
@@ -98,6 +107,7 @@ fn parses_legacy_preset_flag() {
     assert!(image.questions.question.is_none());
 }
 
+#[cfg(feature = "codex-acp")]
 #[test]
 fn registered_preset_resolves_question_and_system_prompt() {
     let cli = Cli::parse_from([
@@ -136,7 +146,7 @@ fn parses_configured_mode_override() {
     let Some(Commands::Configured(args)) = cli.command else {
         panic!("expected configured command");
     };
-    assert_eq!(args.mode, Some(configured::ConfiguredMode::Pipeline));
+    assert_eq!(args.mode, Some(crate::ConfigMode::Pipeline));
 }
 
 #[test]
@@ -149,6 +159,7 @@ fn unknown_preset_resolution_lists_available_presets() {
     assert!(err.to_string().contains("website-install"));
 }
 
+#[cfg(feature = "audit")]
 #[test]
 fn parses_audit_viewports() {
     let cli = Cli::parse_from([
@@ -168,6 +179,7 @@ fn parses_audit_viewports() {
     assert_eq!(audit.viewports[0].width, 1440);
 }
 
+#[cfg(feature = "audit")]
 #[test]
 fn rejects_invalid_audit_viewports() {
     for viewport in ["=1440x900", "../wide=1440x900", "wide=0x900", "wide=1440x0"] {
@@ -190,7 +202,7 @@ fn rejects_invalid_audit_viewports() {
     }
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 #[test]
 fn audit_hosts_static_site_and_writes_report_with_fake_browser() {
     let _guard = audit_test_lock();
@@ -234,7 +246,7 @@ fn audit_hosts_static_site_and_writes_report_with_fake_browser() {
     ));
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 #[test]
 fn audit_skip_ai_uses_default_viewports_and_report_contract() {
     let _guard = audit_test_lock();
@@ -279,7 +291,7 @@ fn audit_skip_ai_uses_default_viewports_and_report_contract() {
     ));
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 #[test]
 fn audit_preserves_multiple_viewport_order_and_custom_path() {
     let _guard = audit_test_lock();
@@ -319,7 +331,7 @@ fn audit_preserves_multiple_viewport_order_and_custom_path() {
     assert_eq!(report.screenshots[1].name, "narrow");
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 #[test]
 fn audit_errors_when_browser_fails_or_writes_no_screenshot() {
     let _guard = audit_test_lock();
@@ -496,7 +508,7 @@ fn split_response(response: &str) -> (&str, &str) {
         .expect("HTTP response should contain header terminator")
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 fn write_fake_browser(path: &std::path::Path) {
     write_fake_browser_script(
         path,
@@ -515,7 +527,7 @@ printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwM
     );
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 fn write_fake_browser_script(path: &std::path::Path, script: impl AsRef<[u8]>) {
     let mut file = std::fs::File::create(path).unwrap();
     writeln!(file, "#!{}", test_shell()).unwrap();
@@ -526,7 +538,7 @@ fn write_fake_browser_script(path: &std::path::Path, script: impl AsRef<[u8]>) {
     std::fs::set_permissions(path, permissions).unwrap();
 }
 
-#[cfg(unix)]
+#[cfg(all(unix, feature = "audit"))]
 fn test_shell() -> String {
     std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string())
 }

@@ -1,3 +1,5 @@
+#![cfg(all(feature = "codex-acp", feature = "pool"))]
+
 mod common;
 
 use std::time::{Duration, Instant};

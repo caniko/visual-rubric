@@ -110,6 +110,8 @@ pub fn run_pipeline(args: PipelineArgs) -> Result<()> {
     let rubric_config = crate::RubricRunConfig {
         codex_acp_binary: args.acp_binary,
         acp_args,
+        url: None,
+        api_model: None,
         extra_env: Vec::new(),
         cwd: None,
     };
