@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Feature flags for every paradigm: `acp`, `codex-acp`, `opencode`, `http-rubric`, `vision-api`, `pipeline`, `pool`, `audit`, `batch`. Default is empty; users enable what they need. (`codex-acp` was previously the only gated feature.)
+- `fake-opencode` test binary for testing the opencode ACP backend.
+- CI check for `--no-default-features` clippy compliance.
+
+### Changed
+
+- `ConfigMode` variants (`Direct`, `Pipeline`) are always compiled; dispatch arms error at runtime when the required backend feature is missing.
+- `configured` subcommand always compiled; runtime error if no backend enabled.
+- `http-rubric` now gates `call_text_api` separately from `vision-api`.
+- `audit` subcommand gated behind dedicated `audit` feature (implies `codex-acp`).
+- `pipeline` subcommand gated behind `pipeline` feature (implies `vision-api`).
+- `pool`, `batch` modules gated behind `pool` and `batch` features respectively.
+- Audit-only test helpers and integration tests gated behind `audit` feature.
+- Pool integration tests gated behind `pool` feature.
+
+### Removed
+
+- `default_acp_binary`, `default_acp_args` helper functions (their values are inlined in `RubricRunConfig::default()`).
+
 ## [0.2.0] - 2026-06-17
 
 ### Added
