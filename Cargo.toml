@@ -11,7 +11,20 @@ keywords = ["visual-testing", "screenshots", "rubric", "codex", "ux"]
 categories = ["development-tools::testing"]
 
 [features]
-fake-codex-acp = []
+default = []
+
+acp = []
+codex-acp = ["acp", "pool"]
+opencode = ["acp"]
+http-rubric = []
+vision-api = []
+pipeline = ["vision-api"]
+pool = ["acp"]
+audit = ["codex-acp"]
+batch = ["pool"]
+
+fake-codex-acp = ["codex-acp"]
+fake-opencode = ["opencode"]
 
 [dependencies]
 anyhow = "1"
@@ -37,3 +50,8 @@ path = "src/main.rs"
 name = "fake-codex-acp"
 path = "tests/bin/fake_codex_acp.rs"
 required-features = ["fake-codex-acp"]
+
+[[bin]]
+name = "fake-opencode"
+path = "tests/bin/fake_opencode.rs"
+required-features = ["fake-opencode"]

@@ -86,6 +86,11 @@
             inherit cargoArtifacts;
             cargoClippyExtraArgs = "--all-targets --all-features -- --deny warnings";
           });
+        clippy-no-default-features = craneLib.cargoClippy (commonArgs
+          // {
+            inherit cargoArtifacts;
+            cargoClippyExtraArgs = "--all-targets --no-default-features -- --deny warnings";
+          });
         fmt = craneLib.cargoFmt {inherit src;};
       };
       devShells = {
