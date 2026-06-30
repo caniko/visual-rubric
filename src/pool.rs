@@ -1,7 +1,7 @@
 use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
@@ -12,8 +12,10 @@ use tempfile::TempDir;
 #[cfg(feature = "codex-acp")]
 mod codex_home;
 mod config;
+mod state;
 
 pub use config::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats};
+use state::SharedPoolState;
 
 use crate::{
     AcpClient, DEFAULT_SYSTEM_PROMPT, PoolError, RateLimitEvent, RubricOptions, RubricVerdict,
@@ -41,16 +43,6 @@ struct Job {
     question: String,
     options: RubricOptions,
     reply: mpsc::Sender<Result<RubricVerdict, PoolError>>,
-}
-
-#[derive(Default, Debug)]
-struct SharedPoolState {
-    completed: AtomicU64,
-    failures: AtomicU64,
-    worker_recycles: AtomicU64,
-    rate_limit_events: Mutex<Vec<RateLimitEvent>>,
-    fatal_quota: AtomicBool,
-    alive_mask: AtomicU64,
 }
 
 impl RubricPool {
@@ -455,27 +447,6 @@ impl WorkerRuntime {
         let effort_ok =
             !cfg!(feature = "codex-acp") || options.effort.as_deref() == Some(self.effort.as_str());
         model_ok && effort_ok
-    }
-}
-
-impl SharedPoolState {
-    fn stats(&self) -> PoolStats {
-        PoolStats {
-            completed: self.completed.load(Ordering::Acquire),
-            failures: self.failures.load(Ordering::Acquire),
-            rate_limit_events: self
-                .rate_limit_events
-                .lock()
-                .map(|events| events.clone())
-                .unwrap_or_default(),
-            worker_recycles: self.worker_recycles.load(Ordering::Acquire),
-        }
-    }
-
-    fn push_rate_limit_event(&self, event: RateLimitEvent) {
-        if let Ok(mut events) = self.rate_limit_events.lock() {
-            events.push(event);
-        }
     }
 }
 
