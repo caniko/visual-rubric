@@ -50,6 +50,34 @@ fn fail_verdict_includes_name_and_reason() {
 }
 
 #[test]
+fn report_markdown_groups_anomalies_and_keeps_page_details() {
+    let report = RubricReport::from_pages(
+        "Regression context",
+        vec![PageResult {
+            label: "home".to_string(),
+            route: Some("/".to_string()),
+            viewport: Some((1280, 720)),
+            screenshot_path: PathBuf::from("/tmp/home.png"),
+            vision_description: "Header\nFooter".to_string(),
+            verdict: RubricVerdict {
+                verdict: "fail".into(),
+                reason: "layout shifted".into(),
+                anomalies: vec!["layout.header overlaps".to_string()],
+            },
+        }],
+    );
+
+    let markdown = report.to_markdown();
+
+    assert!(markdown.contains("- **Total pages**: 1"));
+    assert!(markdown.contains("- **Failed**: 1"));
+    assert!(markdown.contains("| layout | 1 | `home` |"));
+    assert!(markdown.contains("**Viewport:** 1280×720"));
+    assert!(markdown.contains("> Header\n> Footer"));
+    assert!(markdown.contains("- layout.header overlaps"));
+}
+
+#[test]
 fn evaluate_with_config_preserves_parse_error_source() {
     let err = RubricError::ParseVerdict {
         text: "not json".to_string(),

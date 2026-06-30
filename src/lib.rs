@@ -731,13 +731,13 @@ fn effective_acp_args(config: &RubricRunConfig, model: &str, effort: &str) -> Ve
 /// evaluate `png_path` against `question`.
 ///
 /// In `pipeline` mode (the HM default) this routes through
-/// [`evaluate_image_rubric_pipeline`] so that a vision model extracts the
+/// `evaluate_image_rubric_pipeline` so that a vision model extracts the
 /// UI description before the rubric model scores it.  In `direct` mode it
 /// sends the image straight to ACP via
-/// [`evaluate_image_rubric_with_config`].
+/// `evaluate_image_rubric_with_config`.
 ///
 /// When the TOML file is missing or unreadable this falls back to
-/// [`evaluate_image_rubric`] (direct `codex-acp` with defaults).
+/// `evaluate_image_rubric` (direct `codex-acp` with defaults).
 pub fn evaluate_configured(
     png_path: &Path,
     question: &str,
@@ -815,7 +815,7 @@ pub fn evaluate_configured(
 /// Like [`evaluate_configured`] but also returns the vision model's
 /// text description alongside the rubric verdict.
 ///
-/// In `pipeline` mode this calls [`evaluate_image_rubric_pipeline_with_vision`]
+/// In `pipeline` mode this calls `evaluate_image_rubric_pipeline_with_vision`
 /// so the vision description is captured.  In `direct` mode the vision
 /// description is empty (the ACP model evaluates the image directly).
 pub fn evaluate_configured_with_vision(
