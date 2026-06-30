@@ -1,6 +1,7 @@
 //! Page-level and aggregate visual rubric reports.
 
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -53,7 +54,7 @@ impl RubricReport {
             let dur = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_default();
-            format!("{:?}", dur.as_secs())
+            dur.as_secs().to_string()
         };
         Self {
             generated_at,
@@ -68,22 +69,23 @@ impl RubricReport {
     /// Render the report as LLM-optimized structured markdown.
     #[must_use]
     pub fn to_markdown(&self) -> String {
-        let mut md = String::new();
+        let mut md = String::with_capacity(1024 + self.pages.len() * 512);
         md.push_str("# Visual Rubric Report\n\n");
-        md.push_str(&format!("Generated: {}\n\n", self.generated_at));
-        md.push_str(&format!("{}\n\n", self.context));
+        let _ = write!(md, "Generated: {}\n\n", self.generated_at);
+        let _ = write!(md, "{}\n\n", self.context);
         md.push_str("## Summary\n\n");
-        md.push_str(&format!("- **Total pages**: {}\n", self.total));
-        md.push_str(&format!("- **Passed**: {}\n", self.passed));
-        md.push_str(&format!("- **Failed**: {}\n", self.failed));
-        md.push_str(&format!(
+        let _ = writeln!(md, "- **Total pages**: {}", self.total);
+        let _ = writeln!(md, "- **Passed**: {}", self.passed);
+        let _ = writeln!(md, "- **Failed**: {}", self.failed);
+        let _ = write!(
+            md,
             "- **Pass rate**: {}%\n\n",
             if self.total > 0 {
                 (self.passed * 100) / self.total
             } else {
                 0
             }
-        ));
+        );
 
         self.push_defect_patterns(&mut md);
         self.push_page_details(&mut md);
@@ -106,17 +108,14 @@ impl RubricReport {
         md.push_str("| Pattern | Count | Pages |\n");
         md.push_str("|---------|-------|-------|\n");
         for (pattern, labels) in &anomaly_counts {
-            let pages_list = labels
-                .iter()
-                .map(|l| format!("`{}`", l))
-                .collect::<Vec<_>>()
-                .join(", ");
-            md.push_str(&format!(
-                "| {} | {} | {} |\n",
-                pattern,
-                labels.len(),
-                pages_list
-            ));
+            let _ = write!(md, "| {} | {} | ", pattern, labels.len());
+            for (index, label) in labels.iter().enumerate() {
+                if index > 0 {
+                    md.push_str(", ");
+                }
+                let _ = write!(md, "`{label}`");
+            }
+            md.push_str(" |\n");
         }
         md.push('\n');
     }
@@ -128,28 +127,30 @@ impl RubricReport {
             } else {
                 "FAIL"
             };
-            md.push_str(&format!("---\n\n### {}: {}\n\n", status, page.label));
+            let _ = write!(md, "---\n\n### {}: {}\n\n", status, page.label);
             if let Some(ref route) = page.route {
-                md.push_str(&format!("**Route:** `{}`\n\n", route));
+                let _ = write!(md, "**Route:** `{route}`\n\n");
             }
-            md.push_str(&format!(
+            let _ = write!(
+                md,
                 "**Screenshot:** `{}`\n\n",
                 page.screenshot_path.display()
-            ));
+            );
             if let Some((w, h)) = page.viewport {
-                md.push_str(&format!("**Viewport:** {}×{}\n\n", w, h));
+                let _ = write!(md, "**Viewport:** {w}×{h}\n\n");
             }
             md.push_str("**Vision Description:**\n\n");
-            md.push_str(&format!(
+            let _ = write!(
+                md,
                 "> {}\n\n",
                 page.vision_description.replace('\n', "\n> ")
-            ));
-            md.push_str(&format!("**Rubric Result:** {}\n\n", status));
-            md.push_str(&format!("**Reason:** {}\n\n", page.verdict.reason));
+            );
+            let _ = write!(md, "**Rubric Result:** {status}\n\n");
+            let _ = write!(md, "**Reason:** {}\n\n", page.verdict.reason);
             if !page.verdict.anomalies.is_empty() {
                 md.push_str("**Anomalies:**\n");
                 for anomaly in &page.verdict.anomalies {
-                    md.push_str(&format!("- {}\n", anomaly));
+                    let _ = writeln!(md, "- {anomaly}");
                 }
                 md.push('\n');
             }
