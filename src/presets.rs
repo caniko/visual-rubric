@@ -82,6 +82,25 @@ Reply with strict JSON matching this schema and nothing else:\n",
     verdict_schema!()
 );
 
+/// Question for [`PlinthSiteBeauty`]: full-site visual quality audit for
+/// Plinth-backed websites.
+pub const PLINTH_SITE_BEAUTY_QUESTION: &str = "\
+Does this site meet a high production visual standard across hierarchy, spacing, \
+typography, contrast, responsive fit, first-viewport impact, and overall polish?";
+
+/// System prompt for [`PlinthSiteBeauty`].
+pub const PLINTH_SITE_BEAUTY_SYSTEM_PROMPT: &str = concat!(
+    "\
+You are auditing a production website screenshot for high visual quality. \
+Reply with strict JSON matching this schema and nothing else:\n",
+    verdict_schema!(),
+    "\nFail for visible text clipping or overflow, overlapping content or controls, broken \
+responsive layout, empty regions where content should render, weak contrast, confusing hierarchy, \
+unbalanced spacing, amateur typography, visually buried primary actions, incoherent first-viewport \
+composition, or any defect that would make a polished production site feel unfinished. Do not fail \
+for subjective taste when the page is coherent, readable, responsive, and professionally composed."
+);
+
 /// Question for [`ManuscriptFigure`]: publication QA for manuscript figures.
 pub const MANUSCRIPT_FIGURE_QUESTION: &str =
     "Does this manuscript figure asset pass publication visual QA?";
@@ -142,6 +161,25 @@ impl QuestionPreset for WebsiteInstall {
     }
 }
 
+/// Preset `plinth-site-beauty`: full-page visual production quality audit for
+/// Plinth-based sites.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PlinthSiteBeauty;
+
+impl QuestionPreset for PlinthSiteBeauty {
+    fn name(&self) -> &'static str {
+        "plinth-site-beauty"
+    }
+
+    fn questions(&self) -> Vec<String> {
+        vec![PLINTH_SITE_BEAUTY_QUESTION.to_owned()]
+    }
+
+    fn system_prompt(&self) -> Option<&'static str> {
+        Some(PLINTH_SITE_BEAUTY_SYSTEM_PROMPT)
+    }
+}
+
 /// Preset `manuscript-figure`: publication QA for scientific manuscript
 /// figure PNGs.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -195,8 +233,13 @@ impl std::error::Error for PresetError {}
 
 /// Returns every registered preset.
 #[must_use]
-pub fn all() -> [&'static dyn QuestionPreset; 3] {
-    [&UiRegression, &WebsiteInstall, &ManuscriptFigure]
+pub fn all() -> [&'static dyn QuestionPreset; 4] {
+    [
+        &UiRegression,
+        &WebsiteInstall,
+        &PlinthSiteBeauty,
+        &ManuscriptFigure,
+    ]
 }
 
 /// Resolves a preset name to the registered preset.
