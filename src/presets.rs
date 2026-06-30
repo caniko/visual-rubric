@@ -170,6 +170,8 @@ pub enum PresetError {
         /// The unrecognised preset name.
         name: String,
     },
+    /// Neither an explicit question nor a preset was supplied.
+    MissingQuestionSource,
 }
 
 impl fmt::Display for PresetError {
@@ -181,6 +183,9 @@ impl fmt::Display for PresetError {
                     f,
                     "unknown question preset {name:?} (available: {available})"
                 )
+            }
+            Self::MissingQuestionSource => {
+                write!(f, "missing question source: provide --question or --preset")
             }
         }
     }

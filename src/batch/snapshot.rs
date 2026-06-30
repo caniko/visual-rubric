@@ -89,13 +89,13 @@ impl AssetChange {
 pub fn diff_snapshots(before: &AssetSnapshot, after: &AssetSnapshot) -> Vec<AssetChange> {
     let keys: BTreeSet<_> = before.hashes.keys().chain(after.hashes.keys()).collect();
     keys.into_iter()
-        .map(
+        .filter_map(
             |path| match (before.hashes.get(path), after.hashes.get(path)) {
-                (None, Some(_)) => AssetChange::Added(path.clone()),
-                (Some(_), None) => AssetChange::Deleted(path.clone()),
-                (Some(old), Some(new)) if old == new => AssetChange::Unchanged(path.clone()),
-                (Some(_), Some(_)) => AssetChange::Changed(path.clone()),
-                (None, None) => unreachable!("path came from snapshot keys"),
+                (None, Some(_)) => Some(AssetChange::Added(path.clone())),
+                (Some(_), None) => Some(AssetChange::Deleted(path.clone())),
+                (Some(old), Some(new)) if old == new => Some(AssetChange::Unchanged(path.clone())),
+                (Some(_), Some(_)) => Some(AssetChange::Changed(path.clone())),
+                (None, None) => None,
             },
         )
         .collect()

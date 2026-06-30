@@ -212,7 +212,7 @@ impl QuestionSource {
                 Ok(questions.join("\n"))
             }
             (None, Some(q)) => Ok(q.clone()),
-            (None, None) => unreachable!("clap enforces at least one of --question or --preset"),
+            (None, None) => Err(PresetError::MissingQuestionSource),
         }
     }
 
