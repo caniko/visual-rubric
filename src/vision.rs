@@ -45,7 +45,11 @@ fn post_chat_completions(
         // Retry up to 3 times on 503 (model warmup / backend busy).
         let mut response = None;
         for attempt in 0..3 {
-            match request.try_clone().unwrap_or_else(|| client.post(&url).json(&body)).send() {
+            match request
+                .try_clone()
+                .unwrap_or_else(|| client.post(&url).json(&body))
+                .send()
+            {
                 Ok(resp) => {
                     if resp.status() == 503 {
                         if attempt < 2 {
@@ -54,7 +58,9 @@ fn post_chat_completions(
                             continue;
                         }
                         let text = resp.text().unwrap_or_default();
-                        return Err(PoolError::VisionApi(format!("API 503 after retries: {text}")));
+                        return Err(PoolError::VisionApi(format!(
+                            "API 503 after retries: {text}"
+                        )));
                     }
                     response = Some(resp);
                     break;
@@ -69,7 +75,8 @@ fn post_chat_completions(
             }
         }
 
-        let response = response.ok_or_else(|| PoolError::VisionApi("API request failed after retries".to_string()))?;
+        let response = response
+            .ok_or_else(|| PoolError::VisionApi("API request failed after retries".to_string()))?;
 
         let status = response.status();
         if !status.is_success() {
@@ -142,10 +149,7 @@ pub fn call_vision_api(
 /// Returns [`PoolError::VisionApi`] for HTTP, JSON, or unexpected response
 /// shape failures.
 #[cfg(feature = "http-rubric")]
-pub fn call_text_api(
-    prompt: &str,
-    config: &VisionApiConfig,
-) -> Result<String, PoolError> {
+pub fn call_text_api(prompt: &str, config: &VisionApiConfig) -> Result<String, PoolError> {
     let body = serde_json::json!({
         "model": config.model,
         "messages": [{"role": "user", "content": prompt}],

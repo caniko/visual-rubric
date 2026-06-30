@@ -9,7 +9,7 @@
 #![allow(
     clippy::io_other_error,
     clippy::manual_checked_ops,
-    clippy::single_match,
+    clippy::single_match
 )]
 
 #[cfg(feature = "acp")]
@@ -109,7 +109,14 @@ impl RubricReport {
                 .unwrap_or_default();
             format!("{:?}", dur.as_secs())
         };
-        Self { generated_at, context: context.to_string(), pages, passed, failed, total }
+        Self {
+            generated_at,
+            context: context.to_string(),
+            pages,
+            passed,
+            failed,
+            total,
+        }
     }
 
     /// Render the report as LLM-optimized structured markdown.
@@ -122,10 +129,18 @@ impl RubricReport {
         md.push_str(&format!("- **Total pages**: {}\n", self.total));
         md.push_str(&format!("- **Passed**: {}\n", self.passed));
         md.push_str(&format!("- **Failed**: {}\n", self.failed));
-        md.push_str(&format!("- **Pass rate**: {}%\n\n", if self.total > 0 { (self.passed * 100) / self.total } else { 0 }));
+        md.push_str(&format!(
+            "- **Pass rate**: {}%\n\n",
+            if self.total > 0 {
+                (self.passed * 100) / self.total
+            } else {
+                0
+            }
+        ));
 
         // Defect count grouping
-        let mut anomaly_counts: std::collections::BTreeMap<String, Vec<&str>> = std::collections::BTreeMap::new();
+        let mut anomaly_counts: std::collections::BTreeMap<String, Vec<&str>> =
+            std::collections::BTreeMap::new();
         for page in &self.pages {
             for anomaly in &page.verdict.anomalies {
                 let key = anomaly.split('.').next().unwrap_or(anomaly).to_string();
@@ -137,25 +152,44 @@ impl RubricReport {
             md.push_str("| Pattern | Count | Pages |\n");
             md.push_str("|---------|-------|-------|\n");
             for (pattern, labels) in &anomaly_counts {
-                let pages_list = labels.iter().map(|l| format!("`{}`", l)).collect::<Vec<_>>().join(", ");
-                md.push_str(&format!("| {} | {} | {} |\n", pattern, labels.len(), pages_list));
+                let pages_list = labels
+                    .iter()
+                    .map(|l| format!("`{}`", l))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                md.push_str(&format!(
+                    "| {} | {} | {} |\n",
+                    pattern,
+                    labels.len(),
+                    pages_list
+                ));
             }
             md.push('\n');
         }
 
         // Per-page details
         for page in &self.pages {
-            let status = if page.verdict.verdict.is_pass() { "PASS" } else { "FAIL" };
+            let status = if page.verdict.verdict.is_pass() {
+                "PASS"
+            } else {
+                "FAIL"
+            };
             md.push_str(&format!("---\n\n### {}: {}\n\n", status, page.label));
             if let Some(ref route) = page.route {
                 md.push_str(&format!("**Route:** `{}`\n\n", route));
             }
-            md.push_str(&format!("**Screenshot:** `{}`\n\n", page.screenshot_path.display()));
+            md.push_str(&format!(
+                "**Screenshot:** `{}`\n\n",
+                page.screenshot_path.display()
+            ));
             if let Some((w, h)) = page.viewport {
                 md.push_str(&format!("**Viewport:** {}×{}\n\n", w, h));
             }
             md.push_str("**Vision Description:**\n\n");
-            md.push_str(&format!("> {}\n\n", page.vision_description.replace('\n', "\n> ")));
+            md.push_str(&format!(
+                "> {}\n\n",
+                page.vision_description.replace('\n', "\n> ")
+            ));
             md.push_str(&format!("**Rubric Result:** {}\n\n", status));
             md.push_str(&format!("**Reason:** {}\n\n", page.verdict.reason));
             if !page.verdict.anomalies.is_empty() {
@@ -181,7 +215,9 @@ impl RubricReport {
 
     /// Write JSON report to `path`.
     pub fn save_json(&self, path: &Path) -> std::io::Result<()> {
-        let json = self.to_json().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let json = self
+            .to_json()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         std::fs::write(path, json)
     }
 }
@@ -264,11 +300,12 @@ impl RubricRunConfig {
         };
         let _mode = toml.mode.unwrap_or_default();
         RubricRunConfig {
-            codex_acp_binary: toml.rubric.backend
+            codex_acp_binary: toml
+                .rubric
+                .backend
                 .unwrap_or_else(|| "opencode".to_string())
                 .into(),
-            acp_args: toml.rubric.args
-                .unwrap_or_else(|| vec!["acp".to_string()]),
+            acp_args: toml.rubric.args.unwrap_or_else(|| vec!["acp".to_string()]),
             url: toml.rubric.url,
             api_model: toml.rubric.model.clone(),
             ..Default::default()
@@ -399,8 +436,7 @@ pub fn load_config_toml(path: Option<&Path>) -> Result<TomlConfig, std::io::Erro
         }
         Err(e) => return Err(e),
     };
-    toml::from_str(&content)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+    toml::from_str(&content).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 fn config_dir() -> Option<PathBuf> {
@@ -511,10 +547,7 @@ pub fn evaluate_image_rubric_with_config(
 /// When `config.url` is set, posts `rubric_prompt` to an OpenAI-compatible
 /// text model.  Otherwise spawns an ACP child process.
 #[cfg(feature = "pipeline")]
-fn run_rubric_prompt(
-    rubric_prompt: &str,
-    config: &RubricRunConfig,
-) -> Result<String, RubricError> {
+fn run_rubric_prompt(rubric_prompt: &str, config: &RubricRunConfig) -> Result<String, RubricError> {
     #[cfg(feature = "http-rubric")]
     if let Some(ref url) = config.url {
         let api_config = VisionApiConfig {
@@ -622,7 +655,8 @@ pub fn evaluate_image_rubric_pipeline_with_vision(
 
     let text = run_rubric_prompt(&rubric_prompt, rubric_config)?;
 
-    let verdict = parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })?;
+    let verdict =
+        parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })?;
     Ok((verdict, structured))
 }
 
@@ -878,41 +912,58 @@ pub fn evaluate_configured(
         ConfigMode::Pipeline => {
             #[cfg(feature = "pipeline")]
             {
-                let vision_url = toml.vision.url.as_deref().unwrap_or("http://localhost:8013");
+                let vision_url = toml
+                    .vision
+                    .url
+                    .as_deref()
+                    .unwrap_or("http://localhost:8013");
                 let vision_model = toml.vision.model.as_deref().unwrap_or("qwen3-vl-8b");
                 let vision_config = VisionApiConfig {
                     url: vision_url.to_string(),
                     model: vision_model.to_string(),
                     api_key: toml.vision.api_key.clone(),
                 };
-                let vision_prompt = toml.vision.prompt.as_deref()
+                let vision_prompt = toml
+                    .vision
+                    .prompt
+                    .as_deref()
                     .unwrap_or(DEFAULT_VISION_PROMPT);
                 let rubric_config = RubricRunConfig::from_config_toml(None);
                 evaluate_image_rubric_pipeline(
-                    png_path, question,
-                    &vision_config, vision_prompt,
-                    options, &rubric_config,
+                    png_path,
+                    question,
+                    &vision_config,
+                    vision_prompt,
+                    options,
+                    &rubric_config,
                 )
             }
             #[cfg(not(feature = "pipeline"))]
             Err(RubricError::Pool(PoolError::Spawn(
-                "pipeline mode requires the 'pipeline' feature".to_string()
+                "pipeline mode requires the 'pipeline' feature".to_string(),
             )))
         }
         ConfigMode::Direct => {
             #[cfg(feature = "codex-acp")]
             {
                 let rubric_config = RubricRunConfig {
-                    codex_acp_binary: toml.rubric.backend
+                    codex_acp_binary: toml
+                        .rubric
+                        .backend
                         .unwrap_or_else(|| "codex-acp".to_string())
                         .into(),
                     ..Default::default()
                 };
-                evaluate_image_rubric_with_config(png_path, question, options.clone(), rubric_config)
+                evaluate_image_rubric_with_config(
+                    png_path,
+                    question,
+                    options.clone(),
+                    rubric_config,
+                )
             }
             #[cfg(not(feature = "codex-acp"))]
             Err(RubricError::Pool(PoolError::Spawn(
-                "direct mode requires the 'codex-acp' feature".to_string()
+                "direct mode requires the 'codex-acp' feature".to_string(),
             )))
         }
     }
@@ -942,42 +993,59 @@ pub fn evaluate_configured_with_vision(
         ConfigMode::Pipeline => {
             #[cfg(feature = "pipeline")]
             {
-                let vision_url = toml.vision.url.as_deref().unwrap_or("http://localhost:8013");
+                let vision_url = toml
+                    .vision
+                    .url
+                    .as_deref()
+                    .unwrap_or("http://localhost:8013");
                 let vision_model = toml.vision.model.as_deref().unwrap_or("qwen3-vl-8b");
                 let vision_config = VisionApiConfig {
                     url: vision_url.to_string(),
                     model: vision_model.to_string(),
                     api_key: toml.vision.api_key.clone(),
                 };
-                let vision_prompt = toml.vision.prompt.as_deref()
+                let vision_prompt = toml
+                    .vision
+                    .prompt
+                    .as_deref()
                     .unwrap_or(DEFAULT_VISION_PROMPT);
                 let rubric_config = RubricRunConfig::from_config_toml(None);
                 evaluate_image_rubric_pipeline_with_vision(
-                    png_path, question,
-                    &vision_config, vision_prompt,
-                    options, &rubric_config,
+                    png_path,
+                    question,
+                    &vision_config,
+                    vision_prompt,
+                    options,
+                    &rubric_config,
                 )
             }
             #[cfg(not(feature = "pipeline"))]
             Err(RubricError::Pool(PoolError::Spawn(
-                "pipeline mode requires the 'pipeline' feature".to_string()
+                "pipeline mode requires the 'pipeline' feature".to_string(),
             )))
         }
         ConfigMode::Direct => {
             #[cfg(feature = "codex-acp")]
             {
                 let rubric_config = RubricRunConfig {
-                    codex_acp_binary: toml.rubric.backend
+                    codex_acp_binary: toml
+                        .rubric
+                        .backend
                         .unwrap_or_else(|| "codex-acp".to_string())
                         .into(),
                     ..Default::default()
                 };
-                let verdict = evaluate_image_rubric_with_config(png_path, question, options.clone(), rubric_config)?;
+                let verdict = evaluate_image_rubric_with_config(
+                    png_path,
+                    question,
+                    options.clone(),
+                    rubric_config,
+                )?;
                 Ok((verdict, String::new()))
             }
             #[cfg(not(feature = "codex-acp"))]
             Err(RubricError::Pool(PoolError::Spawn(
-                "direct mode requires the 'codex-acp' feature".to_string()
+                "direct mode requires the 'codex-acp' feature".to_string(),
             )))
         }
     }
@@ -990,7 +1058,12 @@ fn evaluate_fallback(
 ) -> Result<RubricVerdict, RubricError> {
     #[cfg(feature = "codex-acp")]
     {
-        evaluate_image_rubric_with_config(png_path, question, options.clone(), RubricRunConfig::default())
+        evaluate_image_rubric_with_config(
+            png_path,
+            question,
+            options.clone(),
+            RubricRunConfig::default(),
+        )
     }
     #[cfg(not(feature = "codex-acp"))]
     {

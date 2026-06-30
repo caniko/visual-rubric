@@ -6,13 +6,13 @@ use std::sync::{Mutex, MutexGuard, OnceLock};
 
 use clap::Parser as _;
 
-use super::{Cli, Commands, PathBuf, QuestionSource};
+#[cfg(feature = "codex-acp")]
+use super::ImageArgs;
 #[cfg(feature = "audit")]
 use super::run;
 #[cfg(feature = "audit")]
 use super::{AuditReport, AuditStatus};
-#[cfg(feature = "codex-acp")]
-use super::ImageArgs;
+use super::{Cli, Commands, PathBuf, QuestionSource};
 
 #[cfg(all(unix, feature = "audit"))]
 fn audit_test_lock() -> MutexGuard<'static, ()> {

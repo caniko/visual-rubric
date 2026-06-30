@@ -10,11 +10,9 @@ use std::path::PathBuf;
 use anyhow::Context as _;
 use anyhow::{Result, anyhow};
 
-use crate::{
-    ConfigMode, load_config_toml,
-};
 #[cfg(feature = "pipeline")]
 use crate::vision::VisionApiConfig;
+use crate::{ConfigMode, load_config_toml};
 
 use super::QuestionSource;
 
@@ -256,8 +254,6 @@ fn direct_rubric_config(
     }
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,8 +290,7 @@ backend = "codex-acp"
 
     #[test]
     fn pipeline_mode_does_not_add_direct_model_defaults() {
-        let options =
-            rubric_options_for_mode(ConfigMode::Pipeline, None, None, None, None, None);
+        let options = rubric_options_for_mode(ConfigMode::Pipeline, None, None, None, None, None);
 
         assert!(options.model.is_none());
         assert!(options.effort.is_none());

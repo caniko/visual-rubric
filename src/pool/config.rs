@@ -2,15 +2,12 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use crate::{
-    DEFAULT_SYSTEM_PROMPT,
-    RubricOptions,
-};
 #[cfg(feature = "codex-acp")]
 use crate::{
     DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, RubricEffort,
     default_codex_acp_binary,
 };
+use crate::{DEFAULT_SYSTEM_PROMPT, RubricOptions};
 
 pub(super) const DEFAULT_SUBMIT_TIMEOUT: Duration = Duration::from_secs(600);
 

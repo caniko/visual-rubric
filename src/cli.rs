@@ -18,12 +18,12 @@ mod static_server;
 #[cfg(test)]
 mod tests;
 
+#[cfg(all(test, feature = "audit"))]
+use audit::RubricReport;
 #[cfg(feature = "audit")]
 use audit::run_audit;
 #[cfg(feature = "audit")]
 pub use audit::{AuditReport, AuditStatus};
-#[cfg(all(test, feature = "audit"))]
-use audit::RubricReport;
 use static_server::StaticServer;
 #[cfg(test)]
 use static_server::{content_type, resolve_static_path};
@@ -249,7 +249,9 @@ pub fn run(cli: Cli) -> Result<()> {
         #[cfg(feature = "codex-acp")]
         None => run_image(cli.image.try_into()?),
         #[cfg(not(feature = "codex-acp"))]
-        None => Err(anyhow!("no subcommand given; use --help for available commands")),
+        None => Err(anyhow!(
+            "no subcommand given; use --help for available commands"
+        )),
     }
 }
 
