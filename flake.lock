@@ -101,7 +101,9 @@
       "inputs": {
         "flake-compat": "flake-compat",
         "gitignore": "gitignore",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
         "lastModified": 1781733627,
@@ -138,23 +140,33 @@
         "type": "github"
       }
     },
-    "nixpkgs": {
+    "meta-harbor": {
+      "inputs": {
+        "flake-utils": [
+          "rs-harbor",
+          "flake-utils"
+        ],
+        "nixpkgs": [
+          "rs-harbor",
+          "nixpkgs"
+        ]
+      },
       "locked": {
-        "lastModified": 1770073757,
-        "narHash": "sha256-Vy+G+F+3E/Tl+GMNgiHl9Pah2DgShmIUBJXmbiQPHbI=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "47472570b1e607482890801aeaf29bfb749884f6",
-        "type": "github"
+        "lastModified": 1783029608,
+        "narHash": "sha256-ThzqhX3rAbJBL1Ggk1PCFD1UEd4PQpddvcVVBunKOLE=",
+        "ref": "trunk",
+        "rev": "ffbf7e84570174dcb4aefef851d79cb3730fc68c",
+        "revCount": 1,
+        "type": "git",
+        "url": "https://codeberg.org/caniko/meta-harbor.git"
       },
       "original": {
-        "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
+        "ref": "trunk",
+        "type": "git",
+        "url": "https://codeberg.org/caniko/meta-harbor.git"
       }
     },
-    "nixpkgs_2": {
+    "nixpkgs": {
       "locked": {
         "lastModified": 1781607440,
         "narHash": "sha256-rxO+uc/KFbSJp+pgyXRuAX6QlG9hJdnt0BXpEQRXY+U=",
@@ -165,22 +177,6 @@
       },
       "original": {
         "owner": "NixOS",
-        "ref": "nixpkgs-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_3": {
-      "locked": {
-        "lastModified": 1770107345,
-        "narHash": "sha256-tbS0Ebx2PiA1FRW8mt8oejR0qMXmziJmPaU1d4kYY9g=",
-        "owner": "nixos",
-        "repo": "nixpkgs",
-        "rev": "4533d9293756b63904b7238acb84ac8fe4c8c2c4",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nixos",
         "ref": "nixpkgs-unstable",
         "repo": "nixpkgs",
         "type": "github"
@@ -265,10 +261,6 @@
     },
     "root": {
       "inputs": {
-        "crane": [
-          "rs-harbor",
-          "crane"
-        ],
         "flake-utils": [
           "rs-harbor",
           "flake-utils"
@@ -291,21 +283,23 @@
       "inputs": {
         "crane": "crane_2",
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs_2",
+        "meta-harbor": "meta-harbor",
+        "nixpkgs": "nixpkgs",
         "osxcross": "osxcross",
         "plinth": "plinth_2",
         "rust-overlay": "rust-overlay_3"
       },
       "locked": {
-        "lastModified": 1781942587,
-        "narHash": "sha256-Of+KSCH/hoy0//au87ZyE0lA2VT3kj42KvNOlt9ETek=",
-        "ref": "refs/heads/main",
-        "rev": "a864c98a7e293cf22148ca8fb4d61bbe0b8fbe01",
-        "revCount": 67,
+        "lastModified": 1783029677,
+        "narHash": "sha256-IctbVpb6ZaJPZyU37KPEAGSmzDnZEOlBdThZ8b3d1Bw=",
+        "ref": "trunk",
+        "rev": "09e1744328c0bbb34630f3d5cff5f801753311a1",
+        "revCount": 98,
         "type": "git",
         "url": "https://codeberg.org/caniko/rs-harbor.git"
       },
       "original": {
+        "ref": "trunk",
         "type": "git",
         "url": "https://codeberg.org/caniko/rs-harbor.git"
       }
@@ -406,7 +400,9 @@
     },
     "treefmt-nix": {
       "inputs": {
-        "nixpkgs": "nixpkgs_3"
+        "nixpkgs": [
+          "nixpkgs"
+        ]
       },
       "locked": {
         "lastModified": 1780220602,
