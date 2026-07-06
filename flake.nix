@@ -59,6 +59,16 @@
       };
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
       package = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;});
+      codexAcpArgs =
+        commonArgs
+        // {
+          cargoExtraArgs = "--features codex-acp";
+        };
+      codexAcpCargoArtifacts = craneLib.buildDepsOnly codexAcpArgs;
+      codexAcpPackage = craneLib.buildPackage (codexAcpArgs
+        // {
+          cargoArtifacts = codexAcpCargoArtifacts;
+        });
       website = plinth.lib.${system}.mkProjectSite {
         pname = "visual-rubric-website";
         domain = "visual-rubric.tartanoglu.com";
@@ -76,6 +86,7 @@
     in {
       packages = {
         default = package;
+        codex-acp = codexAcpPackage;
         website = website;
         site = website;
       };
@@ -85,6 +96,7 @@
       formatter = treefmtEval.config.build.wrapper;
       checks = {
         default = package;
+        codex-acp = codexAcpPackage;
         formatting = treefmtEval.config.build.check self;
         clippy = craneLib.cargoClippy (commonArgs
           // {
@@ -115,11 +127,13 @@
           inherit pkgs cross;
           inherit (toolchain) craneLib;
           checks = self.checks.${system};
-          packages = with pkgs; [
-            plinth.packages.${system}.plinth-project
-            pre-commit
-            rust-analyzer
-          ] ++ pre-commit-check.enabledPackages;
+          packages = with pkgs;
+            [
+              plinth.packages.${system}.plinth-project
+              pre-commit
+              rust-analyzer
+            ]
+            ++ pre-commit-check.enabledPackages;
           extraShellHook = pre-commit-check.shellHook;
         };
       };

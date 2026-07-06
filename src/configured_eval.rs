@@ -2,13 +2,15 @@
 
 use std::path::Path;
 
+#[cfg(any(not(feature = "pipeline"), not(feature = "codex-acp")))]
+use crate::PoolError;
 #[cfg(any(feature = "codex-acp", feature = "pipeline"))]
 use crate::RubricRunConfig;
 #[cfg(feature = "codex-acp")]
 use crate::evaluate_image_rubric_with_config;
 #[cfg(any(feature = "vision-api", feature = "http-rubric"))]
 use crate::vision::VisionApiConfig;
-use crate::{ConfigMode, PoolError, RubricError, RubricOptions, RubricVerdict, load_config_toml};
+use crate::{ConfigMode, RubricError, RubricOptions, RubricVerdict, load_config_toml};
 #[cfg(feature = "pipeline")]
 use crate::{
     DEFAULT_VISION_PROMPT, evaluate_image_rubric_pipeline,
