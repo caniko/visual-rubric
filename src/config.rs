@@ -89,18 +89,45 @@ impl RubricRunConfig {
             Ok(c) => c,
             Err(_) => return RubricRunConfig::default(),
         };
-        let _mode = toml.mode.unwrap_or_default();
+        let mode = toml.mode.unwrap_or_default();
+        let default_backend = match mode {
+            ConfigMode::Direct => "codex-acp",
+            ConfigMode::Pipeline => "opencode",
+        };
+        let acp_args = match toml.rubric.args {
+            Some(args) => args,
+            None if mode == ConfigMode::Direct => direct_codex_acp_args(&toml.rubric),
+            None => vec!["acp".to_string()],
+        };
         RubricRunConfig {
             codex_acp_binary: toml
                 .rubric
                 .backend
-                .unwrap_or_else(|| "opencode".to_string())
+                .unwrap_or_else(|| default_backend.to_string())
                 .into(),
-            acp_args: toml.rubric.args.unwrap_or_else(|| vec!["acp".to_string()]),
+            acp_args,
             url: toml.rubric.url,
             api_model: toml.rubric.model.clone(),
             ..Default::default()
         }
+    }
+}
+
+fn direct_codex_acp_args(rubric: &TomlRubric) -> Vec<String> {
+    #[cfg(feature = "codex-acp")]
+    {
+        build_codex_acp_args(
+            rubric.model.as_deref().unwrap_or(DEFAULT_CODEX_ACP_MODEL),
+            rubric
+                .effort
+                .as_deref()
+                .unwrap_or(DEFAULT_CODEX_ACP_REASONING_EFFORT),
+        )
+    }
+    #[cfg(not(feature = "codex-acp"))]
+    {
+        let _ = rubric;
+        Vec::new()
     }
 }
 
@@ -123,18 +150,18 @@ pub fn default_codex_acp_binary() -> PathBuf {
 }
 
 /// Backend mode read from `config.toml`.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, clap::ValueEnum)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "kebab-case")]
 pub enum ConfigMode {
     /// Direct screenshot evaluation through codex-acp.
+    #[default]
     Direct,
     /// Vision extraction followed by rubric scoring.
-    #[default]
     Pipeline,
 }
 
 /// Full shape of `~/.config/visual-rubric/config.toml`.
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct TomlConfig {
     /// Top-level mode: `"direct"` or `"pipeline"`.
@@ -146,7 +173,7 @@ pub struct TomlConfig {
 }
 
 /// `[vision]` section of the TOML config.
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct TomlVision {
     /// Vision API base URL.
@@ -160,7 +187,7 @@ pub struct TomlVision {
 }
 
 /// `[rubric]` section of the TOML config.
-#[derive(Debug, Deserialize, Default)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 #[serde(default)]
 pub struct TomlRubric {
     /// ACP binary name or path (e.g. `"opencode"` or `"codex-acp"`).
@@ -177,6 +204,31 @@ pub struct TomlRubric {
     pub effort: Option<String>,
     /// Rubric system prompt override.
     pub system_prompt: Option<String>,
+}
+
+/// Build the canonical direct Codex GPT TOML configuration.
+///
+/// This is the optimized subscription-backed path: `codex-acp` receives one
+/// multimodal prompt containing both the rubric text and the screenshot.
+#[cfg(feature = "codex-acp")]
+#[must_use]
+pub fn direct_codex_gpt_config(model: Option<&str>, effort: Option<&str>) -> TomlConfig {
+    TomlConfig {
+        mode: Some(ConfigMode::Direct),
+        vision: TomlVision::default(),
+        rubric: TomlRubric {
+            backend: Some("codex-acp".to_string()),
+            args: None,
+            url: None,
+            model: Some(model.unwrap_or(DEFAULT_CODEX_ACP_MODEL).to_string()),
+            effort: Some(
+                effort
+                    .unwrap_or(DEFAULT_CODEX_ACP_REASONING_EFFORT)
+                    .to_string(),
+            ),
+            system_prompt: None,
+        },
+    }
 }
 
 /// Load the TOML config from `path`, falling back to

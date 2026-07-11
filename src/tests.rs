@@ -17,6 +17,30 @@ fn default_options_use_documented_defaults() {
     );
 }
 
+#[cfg(feature = "codex-acp")]
+#[test]
+fn direct_toml_run_config_uses_codex_model_args() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+mode = "direct"
+
+[rubric]
+backend = "codex-acp"
+model = "gpt-5.5"
+effort = "medium"
+"#,
+    )
+    .expect("write config");
+
+    let config = RubricRunConfig::from_config_toml(Some(&config_path));
+
+    assert_eq!(config.codex_acp_binary, PathBuf::from("codex-acp"));
+    assert_eq!(config.acp_args, build_codex_acp_args("gpt-5.5", "medium"));
+}
+
 #[test]
 fn encode_png_base64_encodes_file_contents() {
     let temp = tempfile::tempdir().expect("tempdir");

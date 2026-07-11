@@ -87,6 +87,17 @@ fn main() {
                             .and_then(|mut file| writeln!(file, "{prompt}"));
                     }
                 }
+                if let Ok(path) = std::env::var("FAKE_CODEX_ACP_PROMPT_KIND_LOG") {
+                    let has_image = msg["params"]["prompt"]
+                        .as_array()
+                        .map(|items| items.iter().any(|item| item["type"] == "image"))
+                        .unwrap_or(false);
+                    let _ = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                        .and_then(|mut file| writeln!(file, "has_image={has_image}"));
+                }
                 let chunks: Vec<&str> = match mode.as_str() {
                     "fail" => vec![
                         "{\"verdict\":\"fail\",\"reason\":\"fake fail\",\"anomalies\":[\"bad\"]}",

@@ -6,7 +6,8 @@ use std::ffi::OsString;
 use std::process::Command;
 
 use visual_rubric::{
-    RubricOptions, RubricRunConfig, build_codex_acp_args, evaluate_image_rubric_with_config,
+    ConfigMode, RubricOptions, RubricRunConfig, build_codex_acp_args, direct_codex_gpt_config,
+    evaluate_image_rubric_with_config,
 };
 
 #[test]
@@ -102,6 +103,62 @@ fn image_forwards_model_effort_and_system_prompt_to_custom_acp() {
     let prompts = std::fs::read_to_string(prompt_log).expect("prompt log");
     assert!(prompts.contains("Project rubric"), "{prompts}");
     assert!(prompts.contains("Question: Does it pass?"), "{prompts}");
+}
+
+#[test]
+fn configured_direct_mode_sends_one_multimodal_codex_prompt() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let image = common::write_fixture_png(&temp);
+    let config = temp.path().join("config.toml");
+    let kind_log = temp.path().join("prompt-kind.log");
+    std::fs::write(
+        &config,
+        format!(
+            r#"
+mode = "direct"
+
+[rubric]
+backend = "{}"
+model = "gpt-5.5"
+effort = "medium"
+"#,
+            fake.display()
+        ),
+    )
+    .expect("write config");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_visual-rubric"))
+        .arg("configured")
+        .arg("--config")
+        .arg(&config)
+        .arg("--image")
+        .arg(&image)
+        .arg("--question")
+        .arg("Does it pass?")
+        .arg("--json")
+        .env("FAKE_CODEX_ACP_MODE", "pass")
+        .env("FAKE_CODEX_ACP_PROMPT_KIND_LOG", &kind_log)
+        .output()
+        .expect("run visual-rubric configured");
+
+    assert!(output.status.success(), "{output:?}");
+    let prompt_kind = std::fs::read_to_string(kind_log).expect("prompt kind log");
+    assert!(prompt_kind.contains("has_image=true"), "{prompt_kind}");
+}
+
+#[test]
+fn direct_codex_gpt_config_uses_subscription_defaults() {
+    let config = direct_codex_gpt_config(None, None);
+
+    assert_eq!(config.mode, Some(ConfigMode::Direct));
+    assert_eq!(config.rubric.backend.as_deref(), Some("codex-acp"));
+    assert_eq!(config.rubric.model.as_deref(), Some("gpt-5.5"));
+    assert_eq!(config.rubric.effort.as_deref(), Some("medium"));
+    assert!(config.vision.url.is_none());
 }
 
 #[test]

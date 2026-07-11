@@ -13,13 +13,15 @@ use anyhow::{Result, anyhow};
 #[cfg(feature = "pipeline")]
 use crate::vision::VisionApiConfig;
 use crate::{ConfigMode, load_config_toml};
+#[cfg(feature = "codex-acp")]
+use crate::{DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT};
 
 use super::QuestionSource;
 
 #[cfg(feature = "codex-acp")]
-const DEFAULT_DIRECT_MODEL: &str = "gpt-5.5";
+const DEFAULT_DIRECT_MODEL: &str = DEFAULT_CODEX_ACP_MODEL;
 #[cfg(feature = "codex-acp")]
-const DEFAULT_DIRECT_EFFORT: &str = "medium";
+const DEFAULT_DIRECT_EFFORT: &str = DEFAULT_CODEX_ACP_REASONING_EFFORT;
 #[cfg(feature = "pipeline")]
 const DEFAULT_PIPELINE_VISION_MODEL: &str = "qwen3-vl-8b";
 

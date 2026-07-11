@@ -3,8 +3,10 @@
 //! This crate owns the Codex ACP plumbing so browser screenshots, offscreen
 //! renderer captures, and VM/VNC screenshots can use one rubric path.
 //!
-//! It also provides a two-stage pipeline: vision model extraction via an
-//! OpenAI-compatible HTTP API, then rubric scoring via ACP.
+//! Direct Codex ACP evaluation sends the rubric prompt and screenshot in one
+//! multimodal request. The crate also provides a two-stage pipeline: vision
+//! model extraction via an OpenAI-compatible HTTP API, then rubric scoring via
+//! ACP.
 #![warn(missing_docs)]
 #![allow(
     clippy::io_other_error,
@@ -52,7 +54,7 @@ pub use config::{
     load_config_toml,
 };
 #[cfg(feature = "codex-acp")]
-pub use config::{default_codex_acp_binary, default_options};
+pub use config::{default_codex_acp_binary, default_options, direct_codex_gpt_config};
 pub use configured_eval::{evaluate_configured, evaluate_configured_with_vision};
 pub use errors::{PoolError, RateLimitEvent, RubricError};
 #[cfg(feature = "pool")]
@@ -68,7 +70,7 @@ pub const DEFAULT_SYSTEM_PROMPT: &str = presets::UI_REGRESSION_SYSTEM_PROMPT;
 
 /// Default Codex ACP model.
 #[cfg(feature = "codex-acp")]
-pub const DEFAULT_CODEX_ACP_MODEL: &str = "gpt-5.4-mini";
+pub const DEFAULT_CODEX_ACP_MODEL: &str = "gpt-5.5";
 /// Default Codex ACP reasoning effort.
 #[cfg(feature = "codex-acp")]
 pub const DEFAULT_CODEX_ACP_REASONING_EFFORT: &str = "medium";
