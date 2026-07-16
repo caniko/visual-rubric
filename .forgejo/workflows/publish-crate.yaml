@@ -6,12 +6,6 @@ name: Publish Crate
 
 on:
   workflow_dispatch:
-    inputs:
-      force_publish:
-        description: "Bypass release smoke checks and continue publishing."
-        required: false
-        default: false
-        type: boolean
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,7 +21,7 @@ jobs:
       CARGO_HOME: "/tmp/.cargo"
     steps:
       - name: Checkout
-        uses: https://code.forgejo.org/actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: https://code.forgejo.org/actions/checkout@v4
 
       - name: Add cargo bin to PATH
         run: echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
@@ -47,7 +41,7 @@ jobs:
           fi
 
           # cargo pkgid scopes the version lookup to the crate this workflow publishes.
-          version="$(nix develop -c cargo pkgid -p visual-rubric | awk -F'[#@]' '{print $NF}')"
+          version="$(nix develop -c cargo pkgid -p visual-rubric | awk -F'[#@]' 'NF > 1 {print $NF}' | tail -n 1)"
           if [ -z "$version" ]; then
             echo "Could not read package version from cargo pkgid" >&2
             exit 1

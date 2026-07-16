@@ -1,7 +1,8 @@
 [ci]
 runner = "atlas-nix-trusted"
 runtime = "nix"
-step_runners = { cargo-clippy = "codeberg-small", cargo-doc = "codeberg-small", cargo-fmt = "codeberg-tiny", cargo-package = "codeberg-medium", cargo-test = "codeberg-medium", nix-check = "atlas-nix-trusted", quality-tools = "codeberg-small" }
+step_runners = { cargo-clippy = "atlas-nix-trusted", cargo-doc = "atlas-nix-trusted", cargo-fmt = "atlas-nix-trusted", cargo-package = "atlas-nix-trusted", cargo-test = "atlas-nix-trusted", nix-check = "atlas-nix-trusted", quality-tools = "atlas-nix-trusted" }
+publish_crates = true
 
 [ci.pages]
 repo = "caniko/visual-rubric"

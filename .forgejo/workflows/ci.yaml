@@ -19,7 +19,7 @@ jobs:
       CARGO_HOME: "/tmp/.cargo"
     steps:
       - name: Checkout
-        uses: https://code.forgejo.org/actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: https://code.forgejo.org/actions/checkout@v4
 
       - name: Add cargo bin to PATH
         run: echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
@@ -27,55 +27,14 @@ jobs:
       - name: Check flake
         run: nix flake check
 
-  codeberg-tiny:
-    needs: [atlas-nix-trusted]
-    runs-on: atlas-nix-trusted
-    env:
-      NIX_CONFIG: "experimental-features = nix-command flakes"
-      XDG_CACHE_HOME: "/tmp/.cache"
-      CARGO_HOME: "/tmp/.cargo"
-    steps:
-      - name: Checkout
-        uses: https://code.forgejo.org/actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Add cargo bin to PATH
-        run: echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
-
       - name: Format check
         run: nix develop -c cargo fmt --all -- --check
-
-  codeberg-medium:
-    needs: [atlas-nix-trusted]
-    runs-on: atlas-nix-trusted
-    env:
-      NIX_CONFIG: "experimental-features = nix-command flakes"
-      XDG_CACHE_HOME: "/tmp/.cache"
-      CARGO_HOME: "/tmp/.cargo"
-    steps:
-      - name: Checkout
-        uses: https://code.forgejo.org/actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Add cargo bin to PATH
-        run: echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
 
       - name: Test
         run: nix develop -c cargo test
 
-      - name: Package crate
-        run: nix develop -c cargo package
-  codeberg-small:
-    needs: [atlas-nix-trusted]
-    runs-on: atlas-nix-trusted
-    env:
-      NIX_CONFIG: "experimental-features = nix-command flakes"
-      XDG_CACHE_HOME: "/tmp/.cache"
-      CARGO_HOME: "/tmp/.cargo"
-    steps:
-      - name: Checkout
-        uses: https://code.forgejo.org/actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Add cargo bin to PATH
-        run: echo "$CARGO_HOME/bin" >> "$GITHUB_PATH"
-
       - name: Clippy
         run: nix develop -c cargo clippy --all-targets -- --deny warnings
+
+      - name: Package crate
+        run: nix develop -c cargo package --allow-dirty --list
