@@ -231,19 +231,18 @@ pub fn direct_codex_gpt_config(model: Option<&str>, effort: Option<&str>) -> Tom
     }
 }
 
-/// Load the TOML config from `path`, falling back to
-/// `$XDG_CONFIG_HOME/visual-rubric/config.toml` (or
-/// `$HOME/.config/visual-rubric/config.toml`).
+/// Load the TOML config from `path`, falling back to the user config path and
+/// then the Infernix-managed `/etc/visual-rubric/config.toml`.
 ///
 /// Returns the default `TomlConfig` (empty optional fields) when the file
 /// is missing.
 pub fn load_config_toml(path: Option<&Path>) -> Result<TomlConfig, std::io::Error> {
     let path = match path {
         Some(p) => p.to_path_buf(),
-        None => match config_dir() {
-            Some(base) => base.join("visual-rubric/config.toml"),
-            None => return Ok(TomlConfig::default()),
-        },
+        None => config_candidates()
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .unwrap_or_else(|| PathBuf::from("/etc/visual-rubric/config.toml")),
     };
     let content = match std::fs::read_to_string(&path) {
         Ok(c) => c,
@@ -253,6 +252,15 @@ pub fn load_config_toml(path: Option<&Path>) -> Result<TomlConfig, std::io::Erro
         Err(e) => return Err(e),
     };
     toml::from_str(&content).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
+fn config_candidates() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(base) = config_dir() {
+        candidates.push(base.join("visual-rubric/config.toml"));
+    }
+    candidates.push(PathBuf::from("/etc/visual-rubric/config.toml"));
+    candidates
 }
 
 fn config_dir() -> Option<PathBuf> {

@@ -26,6 +26,7 @@ pub mod manifest;
 #[cfg(feature = "pool")]
 mod pool;
 pub mod presets;
+pub mod qa;
 mod report;
 mod typed_strings;
 mod verdict;
@@ -59,11 +60,17 @@ pub use config::{default_codex_acp_binary, default_options, direct_codex_gpt_con
 pub use configured_eval::{evaluate_configured, evaluate_configured_with_vision};
 pub use errors::{PoolError, RateLimitEvent, RubricError};
 pub use manifest::{
-    CAPTURE_MANIFEST_SCHEMA_VERSION, CaptureCell, CaptureEnvironment, CaptureManifest,
-    ManifestError, Viewport,
+    ArtifactDigest, CAPTURE_MANIFEST_SCHEMA_VERSION, CaptureCell, CaptureEnvironment,
+    CaptureManifest, ManifestError, Viewport,
 };
 #[cfg(feature = "pool")]
 pub use pool::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats, RubricPool};
+pub use qa::{
+    CALIBRATION_SENTINEL_SCHEMA_VERSION, CalibrationExpectation, CalibrationSentinelV1,
+    FINDING_SCHEMA_VERSION, FindingV1, OBSERVATION_SCHEMA_VERSION, ObservationV1,
+    VISUAL_RUN_REPORT_SCHEMA_VERSION, VisualRunReportV1, VisualRunStatus, finding_fingerprint,
+    validate_calibration_sentinels, validate_visual_run, validate_visual_run_against_manifest,
+};
 pub use report::{PageResult, RubricReport};
 pub use typed_strings::{RubricEffort, RubricVerdictStatus};
 pub use verdict::{RubricVerdict, assert_verdict, parse_verdict};
