@@ -1,6 +1,8 @@
-use std::cell::RefCell;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::Duration;
 
 use crate::{LogCaptureConfig, LogPathMode, RubricVerdictStatus};
@@ -96,12 +98,12 @@ fn aggregate_status_prefers_error_then_fail_then_pass_then_skipped() {
 }
 
 struct FakeEvaluator {
-    results: RefCell<Vec<Result<RubricVerdict, PoolError>>>,
+    results: Mutex<Vec<Result<RubricVerdict, PoolError>>>,
 }
 
 impl BatchEvaluator for FakeEvaluator {
     fn submit_asset(&self, _png_path: &Path, _question: &str) -> Result<RubricVerdict, PoolError> {
-        self.results.borrow_mut().remove(0)
+        self.results.lock().expect("test evaluator mutex").remove(0)
     }
 }
 
@@ -113,7 +115,7 @@ fn batch_partial_error_preserves_completed_and_marks_remaining() {
         AssetChange::Changed(PathBuf::from("c.png")),
     ];
     let evaluator = FakeEvaluator {
-        results: RefCell::new(vec![
+        results: Mutex::new(vec![
             Ok(RubricVerdict {
                 verdict: RubricVerdictStatus::from("pass"),
                 reason: "ok".to_owned(),
@@ -150,6 +152,53 @@ fn batch_partial_error_preserves_completed_and_marks_remaining() {
         report.assets[2].result,
         AssetRubricResult::NotEvaluatedAfterError { .. }
     ));
+}
+
+struct ConcurrentEvaluator {
+    active: AtomicUsize,
+    max_active: AtomicUsize,
+}
+
+impl BatchEvaluator for ConcurrentEvaluator {
+    fn submit_asset(&self, _png_path: &Path, _question: &str) -> Result<RubricVerdict, PoolError> {
+        let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+        self.max_active.fetch_max(active, Ordering::SeqCst);
+        thread::sleep(Duration::from_millis(50));
+        self.active.fetch_sub(1, Ordering::SeqCst);
+        Ok(RubricVerdict {
+            verdict: RubricVerdictStatus::from("pass"),
+            reason: "ok".to_owned(),
+            anomalies: Vec::new(),
+        })
+    }
+}
+
+#[test]
+fn batch_keeps_multiple_evaluations_in_flight() {
+    let changes = vec![
+        AssetChange::Changed(PathBuf::from("a.png")),
+        AssetChange::Changed(PathBuf::from("b.png")),
+        AssetChange::Changed(PathBuf::from("c.png")),
+    ];
+    let evaluator = Arc::new(ConcurrentEvaluator {
+        active: AtomicUsize::new(0),
+        max_active: AtomicUsize::new(0),
+    });
+    let run = BatchRubricRun::new(BatchRubricConfig {
+        pool: PoolConfig {
+            workers: 2,
+            ..PoolConfig::default()
+        },
+        question: "question".to_owned(),
+        selection_mode: SelectionMode::ChangedOnly,
+        classifier: None,
+    });
+
+    let report = run.run_with_evaluator(&changes, Some(evaluator.as_ref()));
+
+    assert_eq!(report.aggregate_status, AggregateStatus::Pass);
+    assert_eq!(report.assets.len(), 3);
+    assert!(evaluator.max_active.load(Ordering::SeqCst) >= 2);
 }
 
 #[test]

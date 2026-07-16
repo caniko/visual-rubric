@@ -5,7 +5,10 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
+use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -211,12 +214,23 @@ impl<'a> BatchRubricRun<'a> {
         let selected_evaluation = if selected.is_empty() {
             SelectedEvaluation::default()
         } else if let Some(evaluator) = evaluator {
-            evaluate_selected(evaluator, changes, &selected, &self.config.question)
+            evaluate_selected(
+                evaluator,
+                changes,
+                &selected,
+                &self.config.question,
+                self.config.pool.workers,
+            )
         } else {
             match RubricPool::new(self.config.pool.clone()) {
                 Ok(pool) => {
-                    let evaluation =
-                        evaluate_selected(&pool, changes, &selected, &self.config.question);
+                    let evaluation = evaluate_selected(
+                        &pool,
+                        changes,
+                        &selected,
+                        &self.config.question,
+                        self.config.pool.workers,
+                    );
                     if evaluation.aborted {
                         drop(pool);
                     } else {
@@ -269,7 +283,7 @@ impl<'a> BatchRubricRun<'a> {
     }
 }
 
-trait BatchEvaluator {
+trait BatchEvaluator: Sync {
     fn submit_asset(&self, png_path: &Path, question: &str) -> Result<RubricVerdict, PoolError>;
 }
 
@@ -299,44 +313,108 @@ fn evaluate_selected(
     changes: &[AssetChange],
     selected: &[PathBuf],
     question: &str,
+    workers: usize,
 ) -> SelectedEvaluation {
-    let mut reports = Vec::with_capacity(selected.len());
-    let mut abort_message = None;
-    let mut aborted = false;
-    for (index, path) in selected.iter().enumerate() {
-        let Some(message) = abort_message.as_ref() else {
-            let result = match evaluator.submit_asset(path, question) {
-                Ok(verdict) => result_from_verdict(verdict),
-                Err(error) => {
-                    let message = error.to_string();
-                    if should_abort_after_error(&error) {
-                        aborted = true;
-                        abort_message = Some(message.clone());
-                    }
-                    AssetRubricResult::Error { message }
-                }
-            };
-            reports.push(AssetRubricReport::selected(
-                path,
-                status_for_selected(path, changes),
-                result,
-            ));
-            continue;
-        };
+    let worker_count = workers.max(1).min(selected.len());
+    let state = Arc::new(Mutex::new(EvaluationState {
+        pending: selected.iter().cloned().enumerate().collect(),
+        completed: Vec::with_capacity(selected.len()),
+        abort_message: None,
+        aborted: false,
+    }));
 
-        reports.extend(selected[index..].iter().map(|remaining| {
+    thread::scope(|scope| {
+        for _ in 0..worker_count {
+            let state = Arc::clone(&state);
+            scope.spawn(move || {
+                loop {
+                    let next = {
+                        let mut state = lock_state(&state);
+                        if state.abort_message.is_some() {
+                            None
+                        } else {
+                            state.pending.pop_front()
+                        }
+                    };
+                    let Some((index, path)) = next else {
+                        break;
+                    };
+
+                    let outcome = evaluator.submit_asset(&path, question);
+                    let mut state = lock_state(&state);
+                    match outcome {
+                        Ok(verdict) => state.completed.push(CompletedEvaluation {
+                            index,
+                            path,
+                            result: result_from_verdict(verdict),
+                        }),
+                        Err(error) => {
+                            let message = error.to_string();
+                            if should_abort_after_error(&error) && state.abort_message.is_none() {
+                                state.aborted = true;
+                                state.abort_message = Some(message.clone());
+                            }
+                            state.completed.push(CompletedEvaluation {
+                                index,
+                                path,
+                                result: AssetRubricResult::Error { message },
+                            });
+                        }
+                    }
+                }
+            });
+        }
+    });
+
+    let mut state = lock_state(&state);
+    let abort_message = state.abort_message.clone();
+    let mut completed = std::mem::take(&mut state.completed);
+    completed.sort_by_key(|evaluation| evaluation.index);
+    let mut reports = completed
+        .into_iter()
+        .map(|evaluation| {
             AssetRubricReport::selected(
-                remaining,
-                status_for_selected(remaining, changes),
+                &evaluation.path,
+                status_for_selected(&evaluation.path, changes),
+                evaluation.result,
+            )
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(message) = abort_message {
+        reports.extend(state.pending.drain(..).map(|(_, path)| {
+            AssetRubricReport::selected(
+                &path,
+                status_for_selected(&path, changes),
                 AssetRubricResult::NotEvaluatedAfterError {
                     root_error: message.clone(),
-                    retry_hint: retry_hint_after_pool_error(message).to_owned(),
+                    retry_hint: retry_hint_after_pool_error(&message).to_owned(),
                 },
             )
         }));
-        break;
     }
-    SelectedEvaluation { reports, aborted }
+
+    SelectedEvaluation {
+        reports,
+        aborted: state.aborted,
+    }
+}
+
+struct EvaluationState {
+    pending: VecDeque<(usize, PathBuf)>,
+    completed: Vec<CompletedEvaluation>,
+    abort_message: Option<String>,
+    aborted: bool,
+}
+
+struct CompletedEvaluation {
+    index: usize,
+    path: PathBuf,
+    result: AssetRubricResult,
+}
+
+fn lock_state<T>(state: &Mutex<T>) -> MutexGuard<'_, T> {
+    state.lock().unwrap_or_else(|error| error.into_inner())
 }
 
 fn result_from_verdict(verdict: RubricVerdict) -> AssetRubricResult {

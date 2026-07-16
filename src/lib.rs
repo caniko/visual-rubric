@@ -22,6 +22,7 @@ pub mod cli;
 mod config;
 mod configured_eval;
 mod errors;
+pub mod manifest;
 #[cfg(feature = "pool")]
 mod pool;
 pub mod presets;
@@ -57,6 +58,10 @@ pub use config::{
 pub use config::{default_codex_acp_binary, default_options, direct_codex_gpt_config};
 pub use configured_eval::{evaluate_configured, evaluate_configured_with_vision};
 pub use errors::{PoolError, RateLimitEvent, RubricError};
+pub use manifest::{
+    CAPTURE_MANIFEST_SCHEMA_VERSION, CaptureCell, CaptureEnvironment, CaptureManifest,
+    ManifestError, Viewport,
+};
 #[cfg(feature = "pool")]
 pub use pool::{LogCaptureConfig, LogPathMode, PoolConfig, PoolStats, RubricPool};
 pub use report::{PageResult, RubricReport};
