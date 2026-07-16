@@ -29,7 +29,7 @@ jobs:
 
   codeberg-tiny:
     needs: [atlas-nix-trusted]
-    runs-on: codeberg-tiny
+    runs-on: atlas-nix-trusted
     env:
       NIX_CONFIG: "experimental-features = nix-command flakes"
       XDG_CACHE_HOME: "/tmp/.cache"
@@ -46,7 +46,7 @@ jobs:
 
   codeberg-medium:
     needs: [atlas-nix-trusted]
-    runs-on: codeberg-medium
+    runs-on: atlas-nix-trusted
     env:
       NIX_CONFIG: "experimental-features = nix-command flakes"
       XDG_CACHE_HOME: "/tmp/.cache"
@@ -65,7 +65,7 @@ jobs:
         run: nix develop -c cargo package
   codeberg-small:
     needs: [atlas-nix-trusted]
-    runs-on: codeberg-small
+    runs-on: atlas-nix-trusted
     env:
       NIX_CONFIG: "experimental-features = nix-command flakes"
       XDG_CACHE_HOME: "/tmp/.cache"
