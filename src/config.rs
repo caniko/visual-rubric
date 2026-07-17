@@ -5,12 +5,12 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::RubricEffort;
 #[cfg(feature = "codex-acp")]
 use crate::{
     DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, DEFAULT_SYSTEM_PROMPT,
     build_codex_acp_args,
 };
+use crate::{RubricEffort, SequenceOptions};
 
 /// Optional model settings for one rubric request.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -113,6 +113,28 @@ impl RubricRunConfig {
     }
 }
 
+impl SequenceOptions {
+    /// Load the ordered-checkpoint policy from the Home-Manager TOML file.
+    ///
+    /// Invalid or missing configuration falls back to the library defaults;
+    /// deployment preflight is responsible for rejecting invalid production
+    /// configuration before a visual run starts.
+    #[must_use]
+    pub fn from_config_toml(path: Option<&Path>) -> Self {
+        let config = load_config_toml(path).ok();
+        let defaults = Self::default();
+        let sequence = config.as_ref().map(|value| &value.sequence);
+        Self {
+            max_frames: sequence
+                .and_then(|value| value.max_frames)
+                .unwrap_or(defaults.max_frames),
+            require_transition: sequence
+                .and_then(|value| value.require_transition)
+                .unwrap_or(defaults.require_transition),
+        }
+    }
+}
+
 fn direct_codex_acp_args(rubric: &TomlRubric) -> Vec<String> {
     #[cfg(feature = "codex-acp")]
     {
@@ -170,6 +192,18 @@ pub struct TomlConfig {
     pub vision: TomlVision,
     /// `[rubric]` section — binary, args, model, effort, system prompt.
     pub rubric: TomlRubric,
+    /// `[sequence]` ordered-checkpoint policy.
+    pub sequence: TomlSequence,
+}
+
+/// `[sequence]` ordered-checkpoint policy.
+#[derive(Debug, Deserialize, Serialize, Default)]
+#[serde(default)]
+pub struct TomlSequence {
+    /// Maximum number of frames accepted by one sequence request.
+    pub max_frames: Option<usize>,
+    /// Require the rubric to assess before/after transition semantics.
+    pub require_transition: Option<bool>,
 }
 
 /// `[vision]` section of the TOML config.
@@ -216,6 +250,7 @@ pub fn direct_codex_gpt_config(model: Option<&str>, effort: Option<&str>) -> Tom
     TomlConfig {
         mode: Some(ConfigMode::Direct),
         vision: TomlVision::default(),
+        sequence: TomlSequence::default(),
         rubric: TomlRubric {
             backend: Some("codex-acp".to_string()),
             args: None,

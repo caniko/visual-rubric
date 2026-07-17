@@ -42,6 +42,59 @@ effort = "medium"
 }
 
 #[test]
+fn sequence_toml_policy_is_loaded_and_bounded() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        "[sequence]\nmax_frames = 12\nrequire_transition = true\n",
+    )
+    .expect("write config");
+
+    let options = SequenceOptions::from_config_toml(Some(&config_path));
+    assert_eq!(options.max_frames, 12);
+    assert!(options.require_transition);
+    assert!(options.validate().is_ok());
+}
+
+#[test]
+fn sequence_policy_rejects_unbounded_values() {
+    assert!(
+        SequenceOptions {
+            max_frames: 0,
+            require_transition: true,
+        }
+        .validate()
+        .is_err()
+    );
+    assert!(
+        SequenceOptions {
+            max_frames: 33,
+            require_transition: true,
+        }
+        .validate()
+        .is_err()
+    );
+}
+
+#[cfg(feature = "codex-acp")]
+#[test]
+fn transition_policy_rejects_single_checkpoint() {
+    let error = evaluate_image_sequence_rubric_with_options(
+        &[SequenceFrame {
+            label: "only".to_owned(),
+            path: PathBuf::from("does-not-exist.png"),
+        }],
+        "question",
+        RubricOptions::default(),
+        RubricRunConfig::default(),
+        SequenceOptions::default(),
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("at least two frames"));
+}
+
+#[test]
 fn encode_png_base64_encodes_file_contents() {
     let temp = tempfile::tempdir().expect("tempdir");
     let png = temp.path().join("sample.png");

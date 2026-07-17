@@ -138,6 +138,44 @@ pub fn call_vision_api(
     post_chat_completions(body, config)
 }
 
+/// Calls a vision API with an ordered sequence of labelled PNG frames.
+///
+/// The labels are included between image parts so the model can reason about
+/// before/after transitions instead of treating the input as an unordered
+/// collage.
+#[cfg(feature = "vision-api")]
+pub fn call_vision_api_sequence(
+    frames: &[(String, String)],
+    question: &str,
+    config: &VisionApiConfig,
+) -> Result<String, PoolError> {
+    if frames.is_empty() {
+        return Err(PoolError::VisionApi(
+            "sequence vision evaluation requires at least one frame".to_owned(),
+        ));
+    }
+    let mut content = Vec::with_capacity(frames.len() * 2 + 1);
+    for (label, b64_png) in frames {
+        content.push(serde_json::json!({
+            "type": "text",
+            "text": format!("Checkpoint: {label}"),
+        }));
+        content.push(serde_json::json!({
+            "type": "image_url",
+            "image_url": {
+                "url": format!("data:image/png;base64,{b64_png}")
+            }
+        }));
+    }
+    content.push(serde_json::json!({"type": "text", "text": question}));
+    let body = serde_json::json!({
+        "model": config.model,
+        "messages": [{"role": "user", "content": content}],
+        "max_tokens": 4096,
+    });
+    post_chat_completions(body, config)
+}
+
 /// Calls a text-only model for rubric evaluation.
 ///
 /// Sends a plain-text prompt (no image) to an OpenAI-compatible endpoint.

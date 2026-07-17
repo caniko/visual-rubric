@@ -44,6 +44,9 @@ enum Commands {
     /// Evaluate one screenshot.
     #[cfg(feature = "codex-acp")]
     Image(ImageArgs),
+    /// Evaluate an ordered before/after screenshot journey.
+    #[cfg(feature = "codex-acp")]
+    Sequence(SequenceArgs),
     /// Host a local static site, capture screenshots, and evaluate them.
     #[cfg(feature = "audit")]
     Audit(AuditArgs),
@@ -107,6 +110,39 @@ struct ImageArgs {
     name: String,
     #[arg(long)]
     json: bool,
+}
+
+#[cfg(feature = "codex-acp")]
+#[derive(Clone, Debug, Parser)]
+struct SequenceArgs {
+    /// Ordered checkpoint as LABEL=PATH. May be repeated.
+    #[arg(long = "frame", value_parser = parse_sequence_frame, required = true, num_args = 1..)]
+    frames: Vec<SequenceFrameArg>,
+    #[command(flatten)]
+    questions: QuestionSource,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    effort: Option<String>,
+    #[arg(long)]
+    codex_acp: Option<PathBuf>,
+    #[arg(long, default_value = "sequence")]
+    name: String,
+    #[arg(long)]
+    json: bool,
+    /// Override the configured maximum number of ordered checkpoints.
+    #[arg(long)]
+    max_frames: Option<usize>,
+    /// Disable semantic before/after transition assessment for this run.
+    #[arg(long)]
+    no_require_transition: bool,
+}
+
+#[cfg(feature = "codex-acp")]
+#[derive(Clone, Debug)]
+struct SequenceFrameArg {
+    label: String,
+    path: PathBuf,
 }
 
 #[cfg(feature = "audit")]
@@ -240,6 +276,8 @@ pub fn run(cli: Cli) -> Result<()> {
     match cli.command {
         #[cfg(feature = "codex-acp")]
         Some(Commands::Image(args)) => run_image(args),
+        #[cfg(feature = "codex-acp")]
+        Some(Commands::Sequence(args)) => run_sequence(args),
         #[cfg(feature = "audit")]
         Some(Commands::Audit(args)) => run_audit(args),
         Some(Commands::Serve(args)) => run_serve(args),
@@ -264,6 +302,50 @@ fn run_image(args: ImageArgs) -> Result<()> {
     }
     crate::assert_verdict(&args.name, verdict)
         .map(|()| println!("visual rubric passed"))
+        .map_err(|error| anyhow!(error))
+}
+
+#[cfg(feature = "codex-acp")]
+fn run_sequence(args: SequenceArgs) -> Result<()> {
+    let question = args.questions.resolve().map_err(|error| anyhow!(error))?;
+    let frames = args
+        .frames
+        .into_iter()
+        .map(|frame| crate::SequenceFrame {
+            label: frame.label,
+            path: frame.path,
+        })
+        .collect::<Vec<_>>();
+    let options = crate::RubricOptions {
+        model: args.model,
+        effort: args.effort.map(Into::into),
+        system_prompt: args
+            .questions
+            .resolve_system_prompt()
+            .map_err(|e| anyhow!(e))?,
+    };
+    let configured_sequence = crate::SequenceOptions::from_config_toml(None);
+    let sequence_options = crate::SequenceOptions {
+        max_frames: args.max_frames.unwrap_or(configured_sequence.max_frames),
+        require_transition: configured_sequence.require_transition && !args.no_require_transition,
+    };
+    let mut runtime_config = crate::RubricRunConfig::from_config_toml(None);
+    if let Some(binary) = args.codex_acp {
+        runtime_config.codex_acp_binary = binary;
+    }
+    let verdict = crate::evaluate_image_sequence_rubric_with_options(
+        &frames,
+        &question,
+        options,
+        runtime_config,
+        sequence_options,
+    )?;
+    if args.json {
+        println!("{}", serde_json::to_string(&verdict)?);
+        return Ok(());
+    }
+    crate::assert_verdict(&args.name, verdict)
+        .map(|()| println!("visual sequence rubric passed"))
         .map_err(|error| anyhow!(error))
 }
 
@@ -345,6 +427,23 @@ impl TryFrom<LegacyImageArgs> for ImageArgs {
             json: value.json,
         })
     }
+}
+
+#[cfg(feature = "codex-acp")]
+fn parse_sequence_frame(value: &str) -> Result<SequenceFrameArg, String> {
+    let (label, path) = value
+        .split_once('=')
+        .ok_or_else(|| "frame must be LABEL=PATH".to_owned())?;
+    if label.trim().is_empty() {
+        return Err("frame label must not be empty".to_owned());
+    }
+    if path.trim().is_empty() {
+        return Err("frame path must not be empty".to_owned());
+    }
+    Ok(SequenceFrameArg {
+        label: label.to_owned(),
+        path: PathBuf::from(path),
+    })
 }
 
 #[cfg(feature = "audit")]

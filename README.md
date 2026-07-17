@@ -16,6 +16,9 @@ The crate exposes:
 - `evaluate_image_rubric_with_options` for one-off screenshot checks.
 - `evaluate_image_rubric_with_config` when callers need a custom `codex-acp`
   binary, environment, or working directory.
+- `evaluate_image_sequence_rubric_with_options` for ordered interaction
+  checkpoints; it bounds frame count and can require semantic before/after
+  transition assessment.
 - `RubricPool` for repeated checks with process reuse, retry backoff, quota
   detection, and worker recycling.
 - `BatchRubricRun` for caller-provided asset batches with changed-file
@@ -48,6 +51,22 @@ visual-rubric image \
   --image site-desktop.png \
   --question "Does the install section stay readable?"
 ```
+
+Ordered journeys are sent as one labelled multimodal request so the rubric can
+judge both the checkpoint states and the interaction between them:
+
+```sh
+visual-rubric sequence \
+  --frame menu=target/menu.png \
+  --frame settings=target/settings.png \
+  --question "Did opening Settings produce the expected usable panel?"
+```
+
+The sequence policy defaults to eight frames with transition assessment enabled.
+Home Manager/Infernix deployments emit the same policy under `[sequence]` in
+`~/.config/visual-rubric/config.toml`; `--max-frames` can override the bound
+for a local run, while `--no-require-transition` is intended only for a
+single-state diagnostic.
 
 For generated assets, callers can keep project-specific discovery downstream
 and let the crate own generic batch mechanics:

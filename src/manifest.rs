@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 /// Current capture-manifest schema version.
-pub const CAPTURE_MANIFEST_SCHEMA_VERSION: u32 = 2;
+pub const CAPTURE_MANIFEST_SCHEMA_VERSION: u32 = 3;
+const LEGACY_CAPTURE_MANIFEST_SCHEMA_VERSION: u32 = 2;
 
 /// A producer's complete description of one visual capture run.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -28,6 +29,12 @@ pub struct CaptureManifest {
     pub declared_cells: usize,
     /// Captures emitted by the producer.
     pub captures: Vec<CaptureCell>,
+    /// Content-addressed semantic coverage contract used for this run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage_contract: Option<ArtifactDigest>,
+    /// Content-addressed execution report for the semantic coverage contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage_report: Option<ArtifactDigest>,
 }
 
 /// Runtime provenance for a capture run.
@@ -187,11 +194,33 @@ impl CaptureManifest {
     /// Validates schema invariants and all referenced artifact paths.
     pub fn validate(&self, root: &Path) -> Result<(), ManifestError> {
         let mut issues = Vec::new();
-        if self.schema_version != CAPTURE_MANIFEST_SCHEMA_VERSION {
+        if !matches!(
+            self.schema_version,
+            LEGACY_CAPTURE_MANIFEST_SCHEMA_VERSION | CAPTURE_MANIFEST_SCHEMA_VERSION
+        ) {
             issues.push(format!(
-                "unsupported schema_version {}; expected {}",
-                self.schema_version, CAPTURE_MANIFEST_SCHEMA_VERSION
+                "unsupported schema_version {}; expected {} or {}",
+                self.schema_version,
+                LEGACY_CAPTURE_MANIFEST_SCHEMA_VERSION,
+                CAPTURE_MANIFEST_SCHEMA_VERSION
             ));
+        }
+        if self.schema_version == CAPTURE_MANIFEST_SCHEMA_VERSION {
+            match &self.coverage_contract {
+                Some(artifact) => {
+                    validate_artifact("manifest", "coverage_contract", artifact, root, &mut issues)
+                }
+                None => issues
+                    .push("schema 3 capture manifest must declare coverage_contract".to_owned()),
+            }
+            match &self.coverage_report {
+                Some(artifact) => {
+                    validate_artifact("manifest", "coverage_report", artifact, root, &mut issues)
+                }
+                None => {
+                    issues.push("schema 3 capture manifest must declare coverage_report".to_owned())
+                }
+            }
         }
         if self.target.trim().is_empty() {
             issues.push("target must not be empty".to_owned());
@@ -421,7 +450,7 @@ mod tests {
 
     fn manifest(image: &str) -> CaptureManifest {
         CaptureManifest {
-            schema_version: CAPTURE_MANIFEST_SCHEMA_VERSION,
+            schema_version: LEGACY_CAPTURE_MANIFEST_SCHEMA_VERSION,
             target: "demo/ui".to_owned(),
             revision: "deadbeef".to_owned(),
             dirty: false,
@@ -449,6 +478,8 @@ mod tests {
                 metadata: BTreeMap::new(),
                 presets: vec!["ui-regression".to_owned()],
             }],
+            coverage_contract: None,
+            coverage_report: None,
         }
     }
 

@@ -106,20 +106,40 @@ impl AcpClient {
         prompt: &str,
         b64_png: &str,
     ) -> Result<String, PoolError> {
+        self.prompt_images(prompt, &[("frame".to_owned(), b64_png.to_owned())])
+    }
+
+    pub(crate) fn prompt_images(
+        &mut self,
+        prompt: &str,
+        frames: &[(String, String)],
+    ) -> Result<String, PoolError> {
         let session_id = self
             .session_id
             .clone()
             .ok_or_else(|| PoolError::Rpc("cannot prompt image before session/new".to_string()))?;
         let prompt_id = self.claim_id();
+        let mut content = vec![serde_json::json!({
+            "type": "text",
+            "text": prompt,
+        })];
+        for (label, b64_png) in frames {
+            content.push(serde_json::json!({
+                "type": "text",
+                "text": format!("Checkpoint: {label}"),
+            }));
+            content.push(serde_json::json!({
+                "type": "image",
+                "data": b64_png,
+                "mimeType": "image/png",
+            }));
+        }
         self.prompt(
             prompt_id,
             &session_id,
             serde_json::json!({
                 "sessionId": session_id,
-                "prompt": [
-                    { "type": "text", "text": prompt },
-                    { "type": "image", "data": b64_png, "mimeType": "image/png" }
-                ]
+                "prompt": content
             }),
         )
     }

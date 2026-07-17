@@ -21,6 +21,7 @@ mod batch;
 pub mod cli;
 mod config;
 mod configured_eval;
+pub mod coverage;
 mod errors;
 pub mod manifest;
 #[cfg(feature = "pool")]
@@ -33,7 +34,7 @@ mod verdict;
 #[cfg(any(feature = "vision-api", feature = "http-rubric"))]
 pub mod vision;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(feature = "acp")]
 use acp::AcpClient;
@@ -52,12 +53,16 @@ pub use batch::{
 };
 pub use cli::Cli;
 pub use config::{
-    ConfigMode, RubricOptions, RubricRunConfig, TomlConfig, TomlRubric, TomlVision,
+    ConfigMode, RubricOptions, RubricRunConfig, TomlConfig, TomlRubric, TomlSequence, TomlVision,
     load_config_toml,
 };
 #[cfg(feature = "codex-acp")]
 pub use config::{default_codex_acp_binary, default_options, direct_codex_gpt_config};
 pub use configured_eval::{evaluate_configured, evaluate_configured_with_vision};
+pub use coverage::{
+    COVERAGE_CONTRACT_SCHEMA_VERSION, COVERAGE_REPORT_SCHEMA_VERSION, CoverageContractV1,
+    CoverageExclusionV1, CoverageReportV1, CoverageSurfaceV1, CoverageTransitionV1,
+};
 pub use errors::{PoolError, RateLimitEvent, RubricError};
 pub use manifest::{
     ArtifactDigest, CAPTURE_MANIFEST_SCHEMA_VERSION, CaptureCell, CaptureEnvironment,
@@ -79,6 +84,48 @@ pub use verdict::{RubricVerdict, assert_verdict, parse_verdict};
 ///
 /// Shared with the `ui-regression` question preset.
 pub const DEFAULT_SYSTEM_PROMPT: &str = presets::UI_REGRESSION_SYSTEM_PROMPT;
+
+/// One ordered screenshot checkpoint in an interaction journey.
+#[cfg(any(feature = "codex-acp", feature = "pipeline"))]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SequenceFrame {
+    /// Stable checkpoint label used in the rubric prompt and evidence.
+    pub label: String,
+    /// PNG artifact containing the checkpoint frame.
+    pub path: PathBuf,
+}
+
+/// Policy applied to one ordered screenshot sequence.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SequenceOptions {
+    /// Maximum number of checkpoints accepted in one request.
+    pub max_frames: usize,
+    /// Whether the rubric must assess the semantic transition between
+    /// adjacent checkpoints. A one-frame sequence never has a transition.
+    pub require_transition: bool,
+}
+
+impl Default for SequenceOptions {
+    fn default() -> Self {
+        Self {
+            max_frames: 8,
+            require_transition: true,
+        }
+    }
+}
+
+impl SequenceOptions {
+    /// Returns an error when the policy cannot provide a bounded request.
+    fn validate(self) -> Result<(), String> {
+        if self.max_frames == 0 {
+            return Err("sequence max_frames must be greater than zero".to_owned());
+        }
+        if self.max_frames > 32 {
+            return Err("sequence max_frames must not exceed 32".to_owned());
+        }
+        Ok(())
+    }
+}
 
 /// Default Codex ACP model.
 #[cfg(feature = "codex-acp")]
@@ -180,6 +227,96 @@ pub fn evaluate_image_rubric_with_config(
         &config,
     )?;
 
+    parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
+}
+
+/// Evaluates an ordered screenshot sequence as one interaction journey.
+///
+/// The evaluator receives every checkpoint in order, including labels, so it
+/// can verify both the visible state at each point and the before/after
+/// transition implied by the sequence. A single-frame rubric cannot prove
+/// that an interaction actually changed the UI.
+///
+/// # Errors
+///
+/// Returns [`RubricError`] for PNG IO, ACP, or verdict parsing failures.
+#[cfg(feature = "codex-acp")]
+pub fn evaluate_image_sequence_rubric_with_config(
+    frames: &[SequenceFrame],
+    question: &str,
+    opts: RubricOptions,
+    config: RubricRunConfig,
+) -> Result<RubricVerdict, RubricError> {
+    evaluate_image_sequence_rubric_with_options(
+        frames,
+        question,
+        opts,
+        config,
+        SequenceOptions::default(),
+    )
+}
+
+/// Evaluates an ordered screenshot sequence with an explicit checkpoint
+/// policy and ACP runtime configuration.
+#[cfg(feature = "codex-acp")]
+pub fn evaluate_image_sequence_rubric_with_options(
+    frames: &[SequenceFrame],
+    question: &str,
+    opts: RubricOptions,
+    config: RubricRunConfig,
+    sequence_options: SequenceOptions,
+) -> Result<RubricVerdict, RubricError> {
+    sequence_options
+        .validate()
+        .map_err(PoolError::Rpc)
+        .map_err(RubricError::Pool)?;
+    if frames.is_empty() {
+        return Err(RubricError::Pool(PoolError::Rpc(
+            "sequence rubric requires at least one frame".to_owned(),
+        )));
+    }
+    if sequence_options.require_transition && frames.len() < 2 {
+        return Err(RubricError::Pool(PoolError::Rpc(
+            "sequence transition assessment requires at least two frames".to_owned(),
+        )));
+    }
+    let mut encoded = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let bytes = std::fs::read(&frame.path).map_err(|source| RubricError::ReadPng {
+            path: frame.path.clone(),
+            source,
+        })?;
+        encoded.push((
+            frame.label.clone(),
+            base64::engine::general_purpose::STANDARD.encode(bytes),
+        ));
+    }
+    if frames.len() > sequence_options.max_frames {
+        return Err(RubricError::Pool(PoolError::Rpc(format!(
+            "sequence contains {} frames, maximum is {}",
+            frames.len(),
+            sequence_options.max_frames
+        ))));
+    }
+    let transition_instruction = if sequence_options.require_transition {
+        "Check every checkpoint and whether each before/after transition is visible and semantically correct."
+    } else {
+        "Check every checkpoint for visual and semantic correctness. Transition assessment is disabled."
+    };
+    let prompt = format!(
+        "{DEFAULT_SYSTEM_PROMPT}\n\nEvaluate this ordered interaction sequence. {transition_instruction}\nQuestion: {question}"
+    );
+    let text = run_codex_acp_sequence(
+        &encoded,
+        &prompt,
+        opts.model
+            .as_deref()
+            .map_or(DEFAULT_CODEX_ACP_MODEL, |model| model),
+        opts.effort
+            .as_deref()
+            .map_or(DEFAULT_CODEX_ACP_REASONING_EFFORT, |effort| effort),
+        &config,
+    )?;
     parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
 }
 
@@ -301,6 +438,92 @@ pub fn evaluate_image_rubric_pipeline_with_vision(
     Ok((verdict, structured))
 }
 
+/// Two-stage evaluation for an ordered interaction sequence.
+///
+/// The vision stage receives all labelled frames and the rubric stage receives
+/// the resulting ordered description, preserving transition context in both
+/// supported backends.
+#[cfg(feature = "pipeline")]
+pub fn evaluate_image_sequence_rubric_pipeline(
+    frames: &[SequenceFrame],
+    question: &str,
+    vision_config: &VisionApiConfig,
+    vision_prompt: &str,
+    rubric_options: &RubricOptions,
+    rubric_config: &RubricRunConfig,
+) -> Result<RubricVerdict, RubricError> {
+    evaluate_image_sequence_rubric_pipeline_with_options(
+        frames,
+        question,
+        vision_config,
+        vision_prompt,
+        rubric_options,
+        rubric_config,
+        SequenceOptions::default(),
+    )
+}
+
+/// Two-stage sequence evaluation with an explicit checkpoint policy.
+#[cfg(feature = "pipeline")]
+pub fn evaluate_image_sequence_rubric_pipeline_with_options(
+    frames: &[SequenceFrame],
+    question: &str,
+    vision_config: &VisionApiConfig,
+    vision_prompt: &str,
+    rubric_options: &RubricOptions,
+    rubric_config: &RubricRunConfig,
+    sequence_options: SequenceOptions,
+) -> Result<RubricVerdict, RubricError> {
+    sequence_options
+        .validate()
+        .map_err(PoolError::VisionApi)
+        .map_err(RubricError::Pool)?;
+    if frames.is_empty() {
+        return Err(RubricError::Pool(PoolError::VisionApi(
+            "sequence rubric requires at least one frame".to_owned(),
+        )));
+    }
+    if sequence_options.require_transition && frames.len() < 2 {
+        return Err(RubricError::Pool(PoolError::VisionApi(
+            "sequence transition assessment requires at least two frames".to_owned(),
+        )));
+    }
+    if frames.len() > sequence_options.max_frames {
+        return Err(RubricError::Pool(PoolError::VisionApi(format!(
+            "sequence contains {} frames, maximum is {}",
+            frames.len(),
+            sequence_options.max_frames
+        ))));
+    }
+    let mut encoded = Vec::with_capacity(frames.len());
+    for frame in frames {
+        let bytes = std::fs::read(&frame.path).map_err(|source| RubricError::ReadPng {
+            path: frame.path.clone(),
+            source,
+        })?;
+        encoded.push((
+            frame.label.clone(),
+            base64::engine::general_purpose::STANDARD.encode(bytes),
+        ));
+    }
+    let structured = vision::call_vision_api_sequence(&encoded, vision_prompt, vision_config)
+        .map_err(RubricError::Pool)?;
+    let system_prompt = rubric_options
+        .system_prompt
+        .as_deref()
+        .map_or(DEFAULT_SYSTEM_PROMPT, |prompt| prompt);
+    let transition_instruction = if sequence_options.require_transition {
+        "Assess the semantic before/after transition between adjacent checkpoints."
+    } else {
+        "Assess each checkpoint independently; transition assessment is disabled."
+    };
+    let rubric_prompt = format!(
+        "{system_prompt}\n\nOrdered UI journey description:\n{structured}\n\n{transition_instruction}\nQuestion: {question}"
+    );
+    let text = run_rubric_prompt(&rubric_prompt, rubric_config)?;
+    parse_verdict(&text).map_err(|source| RubricError::ParseVerdict { text, source })
+}
+
 /// Runs the CLI command.
 ///
 /// # Errors
@@ -330,6 +553,25 @@ fn run_codex_acp_rubric(
 
     let prompt = format!("{system_prompt}\n\nQuestion: {question}");
     acp.prompt_image(&prompt, b64_png)
+}
+
+#[cfg(feature = "codex-acp")]
+fn run_codex_acp_sequence(
+    frames: &[(String, String)],
+    prompt: &str,
+    model: &str,
+    effort: &str,
+    config: &RubricRunConfig,
+) -> Result<String, PoolError> {
+    let args = effective_acp_args(config, model, effort);
+    let mut acp = AcpClient::spawn(
+        &config.codex_acp_binary,
+        args.as_slice(),
+        &config.extra_env,
+        config.cwd.as_deref(),
+    )?;
+    acp.start_session(config.cwd.as_deref())?;
+    acp.prompt_images(prompt, frames)
 }
 
 #[cfg(feature = "codex-acp")]
