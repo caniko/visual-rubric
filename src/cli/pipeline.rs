@@ -45,7 +45,7 @@ pub struct PipelineArgs {
     pub acp_binary: PathBuf,
 
     /// Extra CLI arguments for the ACP binary. May be repeated.
-    /// Default for codex-acp: -c model=... -c model_reasoning_effort=...
+    /// Provider launch arguments, such as `acp` for OpenCode.
     /// For opencode (default): acp
     #[arg(long = "acp-arg")]
     pub acp_args: Vec<String>,

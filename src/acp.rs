@@ -367,17 +367,3 @@ fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
     }
     None
 }
-
-/// Builds legacy CLI arguments for adapters that do not expose ACP session
-/// configuration. Modern ACP v1 callers should leave `acp_args` empty so the
-/// model and reasoning effort are sent through `session/set_config_option`.
-#[cfg(feature = "codex-acp")]
-#[must_use]
-pub fn build_codex_acp_args(model: &str, effort: &str) -> Vec<String> {
-    vec![
-        "-c".to_string(),
-        format!("model=\"{model}\""),
-        "-c".to_string(),
-        format!("model_reasoning_effort=\"{effort}\""),
-    ]
-}

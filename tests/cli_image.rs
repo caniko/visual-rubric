@@ -6,7 +6,7 @@ use std::ffi::OsString;
 use std::process::Command;
 
 use visual_rubric::{
-    ConfigMode, RubricOptions, RubricRunConfig, build_codex_acp_args, direct_codex_gpt_config,
+    ConfigMode, RubricOptions, RubricRunConfig, direct_codex_gpt_config,
     evaluate_image_rubric_with_config,
 };
 
@@ -186,7 +186,7 @@ fn public_api_accepts_custom_binary_env_and_cwd() {
         RubricOptions::default(),
         RubricRunConfig {
             codex_acp_binary: fake,
-            acp_args: build_codex_acp_args("gpt-5.4-mini", "medium"),
+            acp_args: Vec::new(),
             url: None,
             api_model: None,
             extra_env: vec![

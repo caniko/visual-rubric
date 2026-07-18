@@ -31,7 +31,7 @@ pub struct PoolConfig {
     /// Extra CLI arguments for the ACP binary.
     /// When empty, the ACP v1 session advertises and receives model/reasoning
     /// settings through `session/set_config_option`. Explicit arguments remain
-    /// available for legacy ACP adapters.
+    /// available for provider launch modes such as `opencode acp`.
     pub acp_args: Vec<String>,
     /// Extra environment variables for worker processes.
     pub extra_env: Vec<(OsString, OsString)>,

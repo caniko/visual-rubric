@@ -34,7 +34,9 @@ mod verdict;
 #[cfg(any(feature = "vision-api", feature = "http-rubric"))]
 pub mod vision;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+#[cfg(any(feature = "codex-acp", feature = "pipeline"))]
+use std::path::PathBuf;
 
 #[cfg(feature = "acp")]
 use acp::AcpClient;
@@ -42,8 +44,6 @@ use base64::Engine as _;
 #[cfg(any(feature = "vision-api", feature = "http-rubric"))]
 use vision::VisionApiConfig;
 
-#[cfg(feature = "codex-acp")]
-pub use acp::build_codex_acp_args;
 #[cfg(feature = "batch")]
 pub use batch::{
     AggregateStatus, AssetChange, AssetRubricReport, AssetRubricResult, AssetSnapshot,
@@ -116,7 +116,7 @@ impl Default for SequenceOptions {
 
 impl SequenceOptions {
     /// Returns an error when the policy cannot provide a bounded request.
-    fn validate(self) -> Result<(), String> {
+    pub fn validate(self) -> Result<(), String> {
         if self.max_frames == 0 {
             return Err("sequence max_frames must be greater than zero".to_owned());
         }

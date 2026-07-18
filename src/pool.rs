@@ -22,7 +22,7 @@ use crate::{
     encode_png, parse_verdict,
 };
 #[cfg(feature = "codex-acp")]
-use crate::{DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, build_codex_acp_args};
+use crate::{DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT};
 #[cfg(feature = "codex-acp")]
 use codex_home::seed_codex_home;
 
@@ -337,7 +337,7 @@ impl Worker {
         self.maybe_setup_log_capture(&mut env)?;
 
         let (model, effort) = self.resolve_model_effort(options);
-        let acp_args = self.resolve_acp_args(options);
+        let acp_args = self.resolve_acp_args();
         let mut acp = AcpClient::spawn(&self.config.codex_acp_binary, &acp_args, &env, None)?;
         acp.start_session(None, Some(model), Some(effort))?;
 
@@ -374,24 +374,18 @@ impl Worker {
         (model, effort)
     }
 
-    fn resolve_acp_args(&self, _options: &RubricOptions) -> Vec<String> {
+    fn resolve_acp_args(&self) -> Vec<String> {
         if !self.config.acp_args.is_empty() {
             return self.config.acp_args.clone();
         }
         #[cfg(feature = "codex-acp")]
         {
-            let model = _options
-                .model
-                .as_deref()
-                .map_or(DEFAULT_CODEX_ACP_MODEL, |m| m);
-            let effort = _options
-                .effort
-                .as_deref()
-                .map_or(DEFAULT_CODEX_ACP_REASONING_EFFORT, |e| e);
-            build_codex_acp_args(model, effort)
+            Vec::new()
         }
         #[cfg(not(feature = "codex-acp"))]
-        vec!["acp".to_string()]
+        {
+            vec!["acp".to_string()]
+        }
     }
 
     #[allow(unused_variables, clippy::ptr_arg)]
