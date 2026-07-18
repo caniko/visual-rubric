@@ -56,7 +56,12 @@ impl AcpClient {
         })
     }
 
-    pub(crate) fn start_session(&mut self, cwd: Option<&Path>) -> Result<(), PoolError> {
+    pub(crate) fn start_session(
+        &mut self,
+        cwd: Option<&Path>,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Result<(), PoolError> {
         let init_id = self.claim_id();
         self.request(
             init_id,
@@ -96,7 +101,63 @@ impl AcpClient {
                 ))
             })?
             .to_string();
+        self.apply_session_options(&response, &session_id, model, effort)?;
         self.session_id = Some(session_id);
+        Ok(())
+    }
+
+    fn apply_session_options(
+        &mut self,
+        response: &serde_json::Value,
+        session_id: &str,
+        model: Option<&str>,
+        effort: Option<&str>,
+    ) -> Result<(), PoolError> {
+        let advertised = response["configOptions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|option| option["id"].as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        let mut set_option = |id: &str, value: &str| -> Result<(), PoolError> {
+            if advertised.contains(id) {
+                let request_id = self.claim_id();
+                self.request(
+                    request_id,
+                    "session/set_config_option",
+                    serde_json::json!({
+                        "sessionId": session_id,
+                        "configId": id,
+                        "value": value,
+                    }),
+                )?;
+            }
+            Ok(())
+        };
+
+        if let Some(model) = model {
+            set_option("model", model)?;
+        }
+        if let Some(effort) = effort {
+            if advertised.contains("reasoning_effort") {
+                set_option("reasoning_effort", effort)?;
+            } else if advertised.contains("reasoningEffort") {
+                set_option("reasoningEffort", effort)?;
+            }
+        }
+        if advertised.contains("mode") {
+            set_option("mode", "read-only")?;
+        } else if let Some(modes) = response["modes"]["availableModes"].as_array() {
+            if modes.iter().any(|mode| mode["id"] == "read-only") {
+                let request_id = self.claim_id();
+                self.request(
+                    request_id,
+                    "session/set_mode",
+                    serde_json::json!({"sessionId": session_id, "modeId": "read-only"}),
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -307,8 +368,9 @@ fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
     None
 }
 
-/// Builds the default CLI arguments for the codex-acp binary from a model
-/// name and reasoning effort.
+/// Builds legacy CLI arguments for adapters that do not expose ACP session
+/// configuration. Modern ACP v1 callers should leave `acp_args` empty so the
+/// model and reasoning effort are sent through `session/set_config_option`.
 #[cfg(feature = "codex-acp")]
 #[must_use]
 pub fn build_codex_acp_args(model: &str, effort: &str) -> Vec<String> {

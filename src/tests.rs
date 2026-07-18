@@ -19,7 +19,7 @@ fn default_options_use_documented_defaults() {
 
 #[cfg(feature = "codex-acp")]
 #[test]
-fn direct_toml_run_config_uses_codex_model_args() {
+fn direct_toml_run_config_uses_acp_session_settings() {
     let temp = tempfile::tempdir().expect("tempdir");
     let config_path = temp.path().join("config.toml");
     std::fs::write(
@@ -38,7 +38,8 @@ effort = "medium"
     let config = RubricRunConfig::from_config_toml(Some(&config_path));
 
     assert_eq!(config.codex_acp_binary, PathBuf::from("codex-acp"));
-    assert_eq!(config.acp_args, build_codex_acp_args("gpt-5.5", "medium"));
+    assert!(config.acp_args.is_empty());
+    assert_eq!(config.api_model.as_deref(), Some("gpt-5.5"));
 }
 
 #[test]

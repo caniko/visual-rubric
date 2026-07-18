@@ -73,7 +73,7 @@ fn image_forwards_model_effort_and_system_prompt_to_custom_acp() {
     };
     let temp = tempfile::TempDir::new().expect("tempdir");
     let image = common::write_fixture_png(&temp);
-    let args_log = temp.path().join("args.log");
+    let config_log = temp.path().join("config.log");
     let prompt_log = temp.path().join("prompts.log");
     let output = Command::new(env!("CARGO_BIN_EXE_visual-rubric"))
         .arg("image")
@@ -91,15 +91,21 @@ fn image_forwards_model_effort_and_system_prompt_to_custom_acp() {
         .arg(fake)
         .arg("--json")
         .env("FAKE_CODEX_ACP_MODE", "pass")
-        .env("FAKE_CODEX_ACP_ARG_LOG", &args_log)
+        .env("FAKE_CODEX_ACP_CONFIG_LOG", &config_log)
         .env("FAKE_CODEX_ACP_PROMPT_LOG", &prompt_log)
         .output()
         .expect("run visual-rubric");
 
     assert!(output.status.success(), "{output:?}");
-    let args = std::fs::read_to_string(args_log).expect("args log");
-    assert!(args.contains("model=\"custom-model\""), "{args}");
-    assert!(args.contains("model_reasoning_effort=\"high\""), "{args}");
+    let config = std::fs::read_to_string(config_log).expect("config log");
+    assert!(config.contains("\"configId\":\"model\""), "{config}");
+    assert!(config.contains("\"value\":\"custom-model\""), "{config}");
+    assert!(
+        config.contains("\"configId\":\"reasoning_effort\""),
+        "{config}"
+    );
+    assert!(config.contains("\"value\":\"high\""), "{config}");
+    assert!(config.contains("\"configId\":\"mode\""), "{config}");
     let prompts = std::fs::read_to_string(prompt_log).expect("prompt log");
     assert!(prompts.contains("Project rubric"), "{prompts}");
     assert!(prompts.contains("Question: Does it pass?"), "{prompts}");

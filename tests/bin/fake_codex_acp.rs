@@ -66,8 +66,31 @@ fn main() {
             "session/new" => serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": id,
-                "result": { "sessionId": "fake-session" }
+                "result": {
+                    "sessionId": "fake-session",
+                    "configOptions": [
+                        {"id": "model", "name": "Model", "type": "select", "currentValue": "default", "options": []},
+                        {"id": "reasoning_effort", "name": "Reasoning", "type": "select", "currentValue": "medium", "options": []},
+                        {"id": "mode", "name": "Mode", "type": "select", "currentValue": "read-only", "options": []}
+                    ]
+                }
             }),
+            "session/set_config_option" | "session/set_mode" => {
+                if let Ok(path) = std::env::var("FAKE_CODEX_ACP_CONFIG_LOG") {
+                    let _ = OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(path)
+                        .and_then(|mut file| {
+                            writeln!(
+                                file,
+                                "{}",
+                                serde_json::to_string(&msg["params"]).unwrap_or_default()
+                            )
+                        });
+                }
+                serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {}})
+            }
             "session/prompt" if mode == "prompt_crash" => {
                 eprintln!("fake codex-acp prompt crash requested");
                 std::process::exit(3);

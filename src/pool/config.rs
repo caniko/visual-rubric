@@ -29,8 +29,9 @@ pub struct PoolConfig {
     /// Path to the ACP executable.
     pub codex_acp_binary: PathBuf,
     /// Extra CLI arguments for the ACP binary.
-    /// When empty, defaults are used (codex-acp args with the feature on,
-    /// `["acp"]` with the feature off).
+    /// When empty, the ACP v1 session advertises and receives model/reasoning
+    /// settings through `session/set_config_option`. Explicit arguments remain
+    /// available for legacy ACP adapters.
     pub acp_args: Vec<String>,
     /// Extra environment variables for worker processes.
     pub extra_env: Vec<(OsString, OsString)>,

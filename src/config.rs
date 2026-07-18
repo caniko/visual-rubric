@@ -6,10 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "codex-acp")]
-use crate::{
-    DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, DEFAULT_SYSTEM_PROMPT,
-    build_codex_acp_args,
-};
+use crate::{DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT, DEFAULT_SYSTEM_PROMPT};
 use crate::{RubricEffort, SequenceOptions};
 
 /// Optional model settings for one rubric request.
@@ -36,8 +33,9 @@ pub struct RubricRunConfig {
     /// Path to the ACP binary (e.g. `codex-acp` or `opencode`).
     pub codex_acp_binary: PathBuf,
     /// Extra CLI arguments for the ACP binary.
-    /// Defaults to `["-c", "model=...", "-c", "model_reasoning_effort=..."]`
-    /// for codex-acp. For opencode use `["acp"]`.
+    /// Defaults to an empty list. ACP v1 session configuration carries model
+    /// and reasoning settings after `session/new`; legacy adapters may still
+    /// be given explicit arguments here.
     pub acp_args: Vec<String>,
     /// HTTP rubric API base URL (e.g. `"http://127.0.0.1:8013"`).
     /// When set, the pipeline calls an OpenAI-compatible text model
@@ -58,13 +56,7 @@ impl Default for RubricRunConfig {
             codex_acp_binary: PathBuf::from("codex-acp"),
             #[cfg(not(feature = "codex-acp"))]
             codex_acp_binary: PathBuf::from("opencode"),
-            #[cfg(feature = "codex-acp")]
-            acp_args: build_codex_acp_args(
-                DEFAULT_CODEX_ACP_MODEL,
-                DEFAULT_CODEX_ACP_REASONING_EFFORT,
-            ),
-            #[cfg(not(feature = "codex-acp"))]
-            acp_args: vec!["acp".to_string()],
+            acp_args: Vec::new(),
             url: None,
             api_model: None,
             extra_env: Vec::new(),
@@ -136,21 +128,8 @@ impl SequenceOptions {
 }
 
 fn direct_codex_acp_args(rubric: &TomlRubric) -> Vec<String> {
-    #[cfg(feature = "codex-acp")]
-    {
-        build_codex_acp_args(
-            rubric.model.as_deref().unwrap_or(DEFAULT_CODEX_ACP_MODEL),
-            rubric
-                .effort
-                .as_deref()
-                .unwrap_or(DEFAULT_CODEX_ACP_REASONING_EFFORT),
-        )
-    }
-    #[cfg(not(feature = "codex-acp"))]
-    {
-        let _ = rubric;
-        Vec::new()
-    }
+    let _ = rubric;
+    Vec::new()
 }
 
 /// Returns the default rubric options.

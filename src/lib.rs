@@ -344,7 +344,7 @@ fn run_rubric_prompt(rubric_prompt: &str, config: &RubricRunConfig) -> Result<St
             config.cwd.as_deref(),
         )
         .map_err(RubricError::Pool)?;
-        acp.start_session(config.cwd.as_deref())
+        acp.start_session(config.cwd.as_deref(), config.api_model.as_deref(), None)
             .map_err(RubricError::Pool)?;
         acp.prompt_text(rubric_prompt).map_err(RubricError::Pool)
     }
@@ -542,14 +542,13 @@ fn run_codex_acp_rubric(
     system_prompt: &str,
     config: &RubricRunConfig,
 ) -> Result<String, PoolError> {
-    let args = effective_acp_args(config, model, effort);
     let mut acp = AcpClient::spawn(
         &config.codex_acp_binary,
-        args.as_slice(),
+        &config.acp_args,
         &config.extra_env,
         config.cwd.as_deref(),
     )?;
-    acp.start_session(config.cwd.as_deref())?;
+    acp.start_session(config.cwd.as_deref(), Some(model), Some(effort))?;
 
     let prompt = format!("{system_prompt}\n\nQuestion: {question}");
     acp.prompt_image(&prompt, b64_png)
@@ -563,26 +562,14 @@ fn run_codex_acp_sequence(
     effort: &str,
     config: &RubricRunConfig,
 ) -> Result<String, PoolError> {
-    let args = effective_acp_args(config, model, effort);
     let mut acp = AcpClient::spawn(
         &config.codex_acp_binary,
-        args.as_slice(),
+        &config.acp_args,
         &config.extra_env,
         config.cwd.as_deref(),
     )?;
-    acp.start_session(config.cwd.as_deref())?;
+    acp.start_session(config.cwd.as_deref(), Some(model), Some(effort))?;
     acp.prompt_images(prompt, frames)
-}
-
-#[cfg(feature = "codex-acp")]
-fn effective_acp_args(config: &RubricRunConfig, model: &str, effort: &str) -> Vec<String> {
-    if config.acp_args
-        == build_codex_acp_args(DEFAULT_CODEX_ACP_MODEL, DEFAULT_CODEX_ACP_REASONING_EFFORT)
-    {
-        build_codex_acp_args(model, effort)
-    } else {
-        config.acp_args.clone()
-    }
 }
 
 #[cfg(test)]

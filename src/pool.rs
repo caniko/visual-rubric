@@ -339,7 +339,7 @@ impl Worker {
         let (model, effort) = self.resolve_model_effort(options);
         let acp_args = self.resolve_acp_args(options);
         let mut acp = AcpClient::spawn(&self.config.codex_acp_binary, &acp_args, &env, None)?;
-        acp.start_session(None)?;
+        acp.start_session(None, Some(model), Some(effort))?;
 
         Ok(WorkerRuntime {
             acp,
