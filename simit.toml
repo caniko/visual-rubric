@@ -1,10 +1,11 @@
 [ci]
-runner = "codefloe-global"
+runner = "ubuntu-24.04"
 runtime = "nix"
 step_runners = { cargo-clippy = "atlas-nix-trusted", cargo-doc = "atlas-nix-trusted", cargo-fmt = "atlas-nix-trusted", cargo-package = "atlas-nix-trusted", cargo-test = "atlas-nix-trusted", nix-check = "atlas-nix-trusted", quality-tools = "atlas-nix-trusted" }
 publish_crates = true
-provider = "crow"
-platform = "forgejo"
+provider = "actions"
+platform = "github"
+workspace = true
 
 [ci.pages]
 repo = "caniko/visual-rubric"
