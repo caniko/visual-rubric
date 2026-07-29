@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:,">
+    <title>Visual calibration sentinel</title>
+    <style>
+      :root { color-scheme: light; font-family: system-ui, sans-serif; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #f4f4f5; color: #18181b; }
+      main { width: min(100% - 48px, 760px); margin: 0 auto; padding: 48px 0; }
+      article { min-height: 300px; padding: 32px; border: 1px solid #d4d4d8; border-radius: 16px; background: #fff; }
+      h1 { margin: 0 0 16px; font-size: 32px; }
+      p { line-height: 1.5; }
+      .row { display: flex; gap: 16px; }
+      .card { padding: 20px; border: 1px solid #a1a1aa; border-radius: 8px; }
+      .clip { width: 120px; white-space: nowrap; overflow: hidden; }
+      .overlap { position: relative; height: 96px; }
+      .overlap > * { position: absolute; inset: 16px auto auto 16px; }
+      .blank { height: 120px; border: 2px dashed #a1a1aa; }
+      .low-contrast { color: #b8b8b8; }
+      .tiny { font-size: 8px; }
+      .no-focus:focus { outline: none; }
+      .fixed-overflow { width: 960px; }
+      .responsive-row { display: flex; flex-wrap: nowrap; gap: 16px; }
+      .responsive-row .card { min-width: 260px; }
+      .stale { color: #71717a; }
+      .wrong-theme { background: #fff; color: #18181b; padding: 16px; }
+      .unstable { animation: pulse 80ms linear infinite alternate; }
+      @keyframes pulse { from { opacity: .25; } to { opacity: 1; } }
+      .missing-control { min-height: 80px; }
+    </style>
+  </head>
+  <body>
+    <main data-visual-ready="true">
+      <article id="fixture"></article>
+    </main>
+    <script>
+      const fixture = document.querySelector('#fixture');
+      const kind = new URLSearchParams(location.search).get('case') || 'clear';
+      const heading = `<h1>Calibration ${kind}</h1>`;
+      const normal = `<p>Every calibration page is deterministic and intentionally scoped to one defect class.</p>`;
+      const fixtures = {
+        clear: `${heading}${normal}<button data-primary type="button">Continue</button>`,
+        clipping: `${heading}<p class="clip">This label is deliberately clipped outside its container.</p>`,
+        overlap: `${heading}<div class="overlap"><button>Save</button><button>Cancel</button></div>`,
+        'blank-content': `${heading}<div class="blank" aria-label="blank content panel"></div>`,
+        'wrong-hierarchy': `<h1>Calibration wrong-hierarchy</h1><h4>Skipped heading levels make structure unclear.</h4>`,
+        'low-contrast': `${heading}<p class="low-contrast">Important text has insufficient contrast.</p>`,
+        'tiny-text': `${heading}<p class="tiny">This text is intentionally too small to read.</p>`,
+        'missing-focus': `${heading}<button class="no-focus" type="button">Focusable control</button>`,
+        overflow: `${heading}<div class="fixed-overflow">This fixed-width panel overflows a narrow viewport.</div>`,
+        'responsive-layout': `${heading}<div class="responsive-row"><div class="card">One</div><div class="card">Two</div><div class="card">Three</div></div>`,
+        'stale-state': `${heading}<p class="stale">Loading…</p>`,
+        'incorrect-theme': `${heading}<div class="wrong-theme">Dark mode selected but this panel remains light.</div>`,
+        'animation-instability': `${heading}<p class="unstable">This content changes during capture.</p>`,
+        'missing-control': `${heading}<div class="missing-control">The expected primary action is absent.</div>`
+      };
+      fixture.innerHTML = fixtures[kind] || fixtures.clear;
+      fixture.dataset.sentinelCase = kind;
+    </script>
+  </body>
+</html>

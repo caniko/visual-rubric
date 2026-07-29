@@ -134,6 +134,7 @@ fn batch_partial_error_preserves_completed_and_marks_remaining() {
         },
         question: "question".to_owned(),
         selection_mode: SelectionMode::ChangedOnly,
+        cache_dir: None,
         classifier: None,
     });
 
@@ -191,6 +192,7 @@ fn batch_keeps_multiple_evaluations_in_flight() {
         },
         question: "question".to_owned(),
         selection_mode: SelectionMode::ChangedOnly,
+        cache_dir: None,
         classifier: None,
     });
 
@@ -199,6 +201,54 @@ fn batch_keeps_multiple_evaluations_in_flight() {
     assert_eq!(report.aggregate_status, AggregateStatus::Pass);
     assert_eq!(report.assets.len(), 3);
     assert!(evaluator.max_active.load(Ordering::SeqCst) >= 2);
+}
+
+struct CountingEvaluator {
+    calls: AtomicUsize,
+    verdict: RubricVerdict,
+}
+
+impl BatchEvaluator for CountingEvaluator {
+    fn submit_asset(&self, _png_path: &Path, _question: &str) -> Result<RubricVerdict, PoolError> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(self.verdict.clone())
+    }
+}
+
+#[test]
+fn batch_reuses_content_addressed_cache_without_resubmitting() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let image = temp.path().join("screen.png");
+    fs::write(&image, b"stable screenshot bytes").expect("image");
+    let changes = vec![AssetChange::Changed(image)];
+    let evaluator = CountingEvaluator {
+        calls: AtomicUsize::new(0),
+        verdict: RubricVerdict {
+            verdict: RubricVerdictStatus::from("pass"),
+            reason: "cached pass".to_owned(),
+            anomalies: Vec::new(),
+        },
+    };
+    let run = BatchRubricRun::new(BatchRubricConfig {
+        pool: PoolConfig {
+            workers: 1,
+            ..PoolConfig::default()
+        },
+        question: "question".to_owned(),
+        selection_mode: SelectionMode::ChangedOnly,
+        cache_dir: Some(temp.path().join("cache")),
+        classifier: None,
+    });
+
+    let first = run.run_with_evaluator(&changes, Some(&evaluator));
+    let second = run.run_with_evaluator(&changes, Some(&evaluator));
+
+    assert_eq!(first.cache_hits, 0);
+    assert_eq!(first.cache_misses, 1);
+    assert_eq!(second.cache_hits, 1);
+    assert_eq!(second.cache_misses, 0);
+    assert_eq!(evaluator.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(second.aggregate_status, AggregateStatus::Pass);
 }
 
 #[test]
@@ -251,6 +301,7 @@ fn log_capture_copy_error_is_reported() {
         },
         question: "question".to_owned(),
         selection_mode: SelectionMode::ChangedOnly,
+        cache_dir: None,
         classifier: None,
     });
 

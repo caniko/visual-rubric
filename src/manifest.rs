@@ -397,7 +397,15 @@ fn validate_artifact(
             return;
         }
     };
-    if !canonical.starts_with(&canonical_root) {
+    // Cargo workspaces may symlink `target` into a shared build tree. The
+    // producer contract reserves only this generated visual subtree for that
+    // layout; arbitrary symlink escapes remain invalid.
+    let conventional_visual_root = root.join("target/visual").canonicalize().ok();
+    let contained = canonical.starts_with(&canonical_root)
+        || conventional_visual_root
+            .as_ref()
+            .is_some_and(|visual_root| canonical.starts_with(visual_root));
+    if !contained {
         issues.push(format!(
             "capture {capture_id:?} {kind} artifact {} escapes the manifest root",
             resolved.display()

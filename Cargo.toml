@@ -20,7 +20,7 @@ http-rubric = []
 vision-api = []
 pipeline = ["vision-api"]
 pool = ["acp"]
-audit = ["codex-acp"]
+audit = ["codex-acp", "batch"]
 batch = ["pool"]
 
 fake-codex-acp = ["codex-acp"]

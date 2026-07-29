@@ -11,6 +11,10 @@ use crate::presets::PresetError;
 
 #[cfg(feature = "audit")]
 mod audit;
+#[cfg(feature = "audit")]
+mod calibration;
+#[cfg(feature = "audit")]
+mod capture;
 pub mod configured;
 #[cfg(feature = "pipeline")]
 pub mod pipeline;
@@ -24,6 +28,10 @@ use audit::RubricReport;
 use audit::run_audit;
 #[cfg(feature = "audit")]
 pub use audit::{AuditReport, AuditStatus};
+#[cfg(feature = "audit")]
+use calibration::run_calibration;
+#[cfg(feature = "audit")]
+use capture::run_capture;
 use static_server::StaticServer;
 #[cfg(test)]
 use static_server::{content_type, resolve_static_path};
@@ -50,6 +58,12 @@ enum Commands {
     /// Host a local static site, capture screenshots, and evaluate them.
     #[cfg(feature = "audit")]
     Audit(AuditArgs),
+    /// Capture a complete matrix with one browser session and one rubric batch.
+    #[cfg(feature = "audit")]
+    Capture(CaptureArgs),
+    /// Validate a captured deterministic report against a calibration corpus.
+    #[cfg(feature = "audit")]
+    Calibrate(CalibrateArgs),
     /// Serve a local static directory for manual browser testing.
     Serve(ServeArgs),
     /// Two-stage pipeline: vision model → rubric model.
@@ -199,6 +213,74 @@ struct AuditArgs {
     skip_ai: bool,
 }
 
+#[cfg(feature = "audit")]
+#[derive(Clone, Debug, Parser)]
+struct CaptureArgs {
+    /// Static site root to serve when `--base-url` is not supplied.
+    #[arg(long)]
+    root: PathBuf,
+    /// Workspace that owns emitted capture artifacts. Defaults to the current directory.
+    #[arg(long)]
+    workspace: Option<PathBuf>,
+    /// Existing HTTP(S) site to capture; skips starting the static server.
+    #[arg(long)]
+    base_url: Option<String>,
+    /// JSON capture-job description.
+    #[arg(long)]
+    job: PathBuf,
+    /// Root directory for emitted screenshots and metadata.
+    #[arg(long, default_value = "target/visual-rubric/captures")]
+    output: PathBuf,
+    /// JSON capture manifest path.
+    #[arg(long, default_value = "target/visual-rubric/capture_manifest.json")]
+    manifest: PathBuf,
+    /// JSON producer report path.
+    #[arg(long, default_value = "target/visual-rubric/run_report.json")]
+    report: PathBuf,
+    /// Browser binary for headless captures.
+    #[arg(long, env = "VISUAL_RUBRIC_BROWSER", default_value = "chromium")]
+    browser: PathBuf,
+    /// Extra argument passed to the browser. May be repeated.
+    #[arg(long = "browser-arg")]
+    browser_args: Vec<String>,
+    /// Number of rubric workers in the shared batch.
+    #[arg(long, default_value_t = 4)]
+    rubric_workers: usize,
+    /// Content-addressed rubric verdict cache directory.
+    #[arg(long)]
+    cache_dir: Option<PathBuf>,
+    #[command(flatten)]
+    questions: QuestionSource,
+    #[arg(long)]
+    system_prompt: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
+    #[arg(long)]
+    effort: Option<String>,
+    #[arg(long)]
+    codex_acp: Option<PathBuf>,
+    /// Generate pass verdicts without starting codex-acp.
+    #[arg(long)]
+    fake_pass: bool,
+    /// Capture deterministic evidence without model calls.
+    #[arg(long)]
+    skip_ai: bool,
+}
+
+#[cfg(feature = "audit")]
+#[derive(Clone, Debug, Parser)]
+struct CalibrateArgs {
+    /// Checked-in calibration corpus JSON.
+    #[arg(long)]
+    corpus: PathBuf,
+    /// Schema-3 capture manifest produced by `capture`.
+    #[arg(long)]
+    manifest: PathBuf,
+    /// Deterministic report produced by `capture`.
+    #[arg(long)]
+    report: PathBuf,
+}
+
 #[derive(Clone, Debug, Parser)]
 struct ServeArgs {
     #[arg(long)]
@@ -280,6 +362,10 @@ pub fn run(cli: Cli) -> Result<()> {
         Some(Commands::Sequence(args)) => run_sequence(args),
         #[cfg(feature = "audit")]
         Some(Commands::Audit(args)) => run_audit(args),
+        #[cfg(feature = "audit")]
+        Some(Commands::Capture(args)) => run_capture(args),
+        #[cfg(feature = "audit")]
+        Some(Commands::Calibrate(args)) => run_calibration(args),
         Some(Commands::Serve(args)) => run_serve(args),
         #[cfg(feature = "pipeline")]
         Some(Commands::Pipeline(args)) => pipeline::run_pipeline(args),

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "target": "calibration/sentinels",
+  "revision": "checked-in-calibration-v1",
+  "dirty": false,
+  "cells": [
+    {"id":"sentinel/clear/desktop/light/en-US","path":"/index.html?case=clear","state":"clear","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US","required_controls":["button[data-primary]"]},
+    {"id":"sentinel/clipping/desktop/light/en-US","path":"/index.html?case=clipping","state":"clipping","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/overlap/desktop/light/en-US","path":"/index.html?case=overlap","state":"overlap","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/blank-content/desktop/light/en-US","path":"/index.html?case=blank-content","state":"blank-content","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/wrong-hierarchy/desktop/light/en-US","path":"/index.html?case=wrong-hierarchy","state":"wrong-hierarchy","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/low-contrast/desktop/light/en-US","path":"/index.html?case=low-contrast","state":"low-contrast","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/tiny-text/desktop/light/en-US","path":"/index.html?case=tiny-text","state":"tiny-text","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/missing-focus/desktop/light/en-US","path":"/index.html?case=missing-focus","state":"missing-focus","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/overflow/mobile/light/en-US","path":"/index.html?case=overflow","state":"overflow","viewport":{"width":390,"height":844,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/responsive-layout/mobile/light/en-US","path":"/index.html?case=responsive-layout","state":"responsive-layout","viewport":{"width":390,"height":844,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/stale-state/desktop/light/en-US","path":"/index.html?case=stale-state","state":"stale-state","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/incorrect-theme/desktop/dark/en-US","path":"/index.html?case=incorrect-theme","state":"incorrect-theme","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"dark","locale":"en-US"},
+    {"id":"sentinel/animation-instability/desktop/light/en-US","path":"/index.html?case=animation-instability","state":"animation-instability","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US"},
+    {"id":"sentinel/missing-control/desktop/light/en-US","path":"/index.html?case=missing-control","state":"missing-control","viewport":{"width":1024,"height":768,"dpr":1.0},"theme":"light","locale":"en-US","required_controls":["button[data-primary]"]}
+  ],
+  "sentinels": [
+    {"schema_version":1,"id":"known-good-clear","capture_id":"sentinel/clear/desktop/light/en-US","expectation":{"kind":"clear"}},
+    {"schema_version":1,"id":"known-clipping","capture_id":"sentinel/clipping/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"clipping"}},
+    {"schema_version":1,"id":"known-overlap","capture_id":"sentinel/overlap/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"overlap"}},
+    {"schema_version":1,"id":"known-blank-content","capture_id":"sentinel/blank-content/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"blank-content"}},
+    {"schema_version":1,"id":"known-wrong-hierarchy","capture_id":"sentinel/wrong-hierarchy/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"wrong-hierarchy"}},
+    {"schema_version":1,"id":"known-low-contrast","capture_id":"sentinel/low-contrast/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"low-contrast"}},
+    {"schema_version":1,"id":"known-tiny-text","capture_id":"sentinel/tiny-text/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"tiny-text"}},
+    {"schema_version":1,"id":"known-missing-focus","capture_id":"sentinel/missing-focus/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"missing-focus"}},
+    {"schema_version":1,"id":"known-overflow","capture_id":"sentinel/overflow/mobile/light/en-US","expectation":{"kind":"finding","observation_kind":"overflow"}},
+    {"schema_version":1,"id":"known-responsive-layout","capture_id":"sentinel/responsive-layout/mobile/light/en-US","expectation":{"kind":"finding","observation_kind":"responsive-layout"}},
+    {"schema_version":1,"id":"known-stale-state","capture_id":"sentinel/stale-state/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"stale-state"}},
+    {"schema_version":1,"id":"known-incorrect-theme","capture_id":"sentinel/incorrect-theme/desktop/dark/en-US","expectation":{"kind":"finding","observation_kind":"incorrect-theme"}},
+    {"schema_version":1,"id":"known-animation-instability","capture_id":"sentinel/animation-instability/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"animation-instability"}},
+    {"schema_version":1,"id":"known-missing-control","capture_id":"sentinel/missing-control/desktop/light/en-US","expectation":{"kind":"finding","observation_kind":"missing-control"}}
+  ]
+}

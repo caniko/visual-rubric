@@ -18,10 +18,14 @@
 mod acp;
 #[cfg(feature = "batch")]
 mod batch;
+#[cfg(feature = "audit")]
+mod browser;
+pub mod calibration;
 pub mod cli;
 mod config;
 mod configured_eval;
 pub mod coverage;
+pub mod deterministic;
 mod errors;
 pub mod manifest;
 #[cfg(feature = "pool")]
@@ -51,6 +55,10 @@ pub use batch::{
     IssueClassifier, IssueRecommendation, RecommendationSeverity, SelectionMode, diff_snapshots,
     select_changed,
 };
+pub use calibration::{
+    CALIBRATION_CORPUS_SCHEMA_VERSION, CalibrationCaptureV1, CalibrationCorpusV1,
+    REQUIRED_CALIBRATION_CATEGORIES,
+};
 pub use cli::Cli;
 pub use config::{
     ConfigMode, RubricOptions, RubricRunConfig, TomlConfig, TomlRubric, TomlSequence, TomlVision,
@@ -62,6 +70,9 @@ pub use configured_eval::{evaluate_configured, evaluate_configured_with_vision};
 pub use coverage::{
     COVERAGE_CONTRACT_SCHEMA_VERSION, COVERAGE_REPORT_SCHEMA_VERSION, CoverageContractV1,
     CoverageExclusionV1, CoverageReportV1, CoverageSurfaceV1, CoverageTransitionV1,
+};
+pub use deterministic::{
+    DETERMINISTIC_EVIDENCE_SCHEMA_VERSION, DeterministicEvidenceV1, DeterministicObservationV1,
 };
 pub use errors::{PoolError, RateLimitEvent, RubricError};
 pub use manifest::{

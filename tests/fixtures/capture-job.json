@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "target": "fixture/application",
+  "revision": "fixture-revision",
+  "dirty": false,
+  "cells": [
+    {
+      "id": "home/desktop/default/en-US",
+      "path": "/",
+      "state": "home",
+      "viewport": {"width": 640, "height": 480, "dpr": 1.0},
+      "theme": "default",
+      "locale": "en-US",
+      "presets": ["plinth-site-beauty"]
+    }
+  ]
+}

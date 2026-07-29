@@ -112,6 +112,36 @@ Audit reports are versioned JSON. They include an aggregate status, capture URL,
 elapsed time, effective high-level options, and one rubric result per screenshot.
 Use `--fail-on-rubric` when CI should fail on rubric failures or rubric errors.
 
+For a versioned browser matrix, `capture` keeps one Chromium session and writes
+full-page/viewport images plus DOM, accessibility, readiness, console, and
+deterministic layout evidence:
+
+```sh
+visual-rubric capture \
+  --root tests/fixtures/calibration-site \
+  --job tests/fixtures/calibration/corpus.json \
+  --output target/visual/captures \
+  --manifest target/visual/capture_manifest.json \
+  --report target/visual/run_report.json \
+  --preset ui-regression \
+  --fake-pass
+```
+
+Use `--fake-pass` only when checking capture/report plumbing; it is not a
+semantic visual verdict.
+
+Calibration fixtures can then be checked without a model call:
+
+```sh
+visual-rubric calibrate \
+  --corpus tests/fixtures/calibration/corpus.json \
+  --manifest target/visual/capture_manifest.json \
+  --report target/visual/deterministic_report.json
+```
+
+The deterministic gate catches declared DOM/layout/runtime classes; it
+complements, rather than replaces, semantic screenshot review.
+
 For Home Manager-managed setups, keep backend selection in
 `~/.config/visual-rubric/config.toml` and run:
 

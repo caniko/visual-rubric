@@ -55,11 +55,11 @@ fn pool_recycles_after_prompt_limit() {
     );
     let args = std::fs::read_to_string(args_log).expect("ACP argument log");
     assert!(
-        !args.contains("-c"),
+        !args.lines().any(|line| line == "-c"),
         "legacy adapter arguments leaked: {args}"
     );
     assert!(
-        !args.contains("model="),
+        !args.lines().any(|line| line.starts_with("model=")),
         "legacy model argument leaked: {args}"
     );
     let config = std::fs::read_to_string(config_log).expect("ACP config log");
