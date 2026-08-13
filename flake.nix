@@ -51,7 +51,13 @@
       cross = rs-harbor.lib.mkCross {inherit pkgs system;};
       inherit (toolchain) craneLib;
 
-      src = craneLib.cleanCargoSource ./.;
+      src = pkgs.lib.fileset.toSource {
+        root = ./.;
+        fileset = pkgs.lib.fileset.unions [
+          (craneLib.fileset.commonCargoSources ./.)
+          ./tests/fixtures
+        ];
+      };
       commonArgs = {
         inherit src;
         strictDeps = true;
