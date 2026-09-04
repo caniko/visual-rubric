@@ -2,12 +2,13 @@
   description = "Rust project";
 
   inputs = {
-    rs-harbor = {
-      url = "git+https://github.com/caniko/rs-harbor.git?ref=trunk&rev=05cc4f162b55fa904b687db1821e2463fa813e50";
+    harbor-rs = {
+      url = "git+https://github.com/caniko/harbor-rs.git?ref=trunk&rev=05cc4f162b55fa904b687db1821e2463fa813e50";
     };
+    rs-harbor.follows = "harbor-rs";
 
-    nixpkgs.follows = "rs-harbor/nixpkgs";
-    rust-overlay.follows = "rs-harbor/rust-overlay";
+    nixpkgs.follows = "harbor-rs/nixpkgs";
+    rust-overlay.follows = "harbor-rs/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
 
     treefmt-nix = {
@@ -27,7 +28,7 @@
   outputs = {
     self,
     nixpkgs,
-    rs-harbor,
+    harbor-rs,
     flake-utils,
     rust-overlay,
     treefmt-nix,
@@ -41,14 +42,14 @@
         overlays = [(import rust-overlay)];
       };
 
-      toolchain = rs-harbor.lib.mkToolchain {
+      toolchain = harbor-rs.lib.mkToolchain {
         inherit pkgs;
         toolchainProfile = "nightly";
         extensions = ["rustfmt" "clippy"];
         withRustAnalyzer = false;
         crossTargets = [];
       };
-      cross = rs-harbor.lib.mkCross {inherit pkgs system;};
+      cross = harbor-rs.lib.mkCross {inherit pkgs system;};
       inherit (toolchain) craneLib;
 
       src = pkgs.lib.fileset.toSource {
@@ -128,7 +129,7 @@
           shellHook = pre-commit-check.shellHook;
         };
 
-        docs = rs-harbor.lib.mkDocsShell {
+        docs = harbor-rs.lib.mkDocsShell {
           inherit pkgs cross;
           inherit (toolchain) craneLib;
           checks = self.checks.${system};
