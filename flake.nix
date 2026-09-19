@@ -19,7 +19,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     plinth = {
-      url = "git+https://codeberg.org/caniko/plinth.git?ref=refs/heads/trunk";
+      url = "git+https://github.com/caniko/plinth.git?ref=refs/heads/trunk";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
