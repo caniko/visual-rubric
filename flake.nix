@@ -56,6 +56,9 @@
         fileset = pkgs.lib.fileset.unions [
           (craneLib.fileset.commonCargoSources ./.)
           ./tests/fixtures
+          ./README.md
+          ./LICENSE
+          ./CHANGELOG.md
         ];
       };
       commonArgs = {
@@ -103,6 +106,28 @@
         default = package;
         codex-acp = codexAcpPackage;
         formatting = treefmtEval.config.build.check self;
+        tests-all-features = craneLib.cargoTest (commonArgs
+          // {
+            inherit cargoArtifacts;
+            cargoTestExtraArgs = "--all-features";
+          });
+        docs = craneLib.cargoDoc (commonArgs
+          // {
+            inherit cargoArtifacts;
+            cargoDocExtraArgs = "--all-features --no-deps";
+            RUSTDOCFLAGS = "-D warnings";
+          });
+        package = craneLib.mkCargoDerivation (commonArgs
+          // {
+            inherit cargoArtifacts;
+            pname = "visual-rubric-package";
+            buildPhaseCargoCommand = "cargo package --locked --offline --allow-dirty --all-features";
+            doCheck = false;
+            installPhaseCommand = ''
+              mkdir -p "$out"
+              cp target/package/*.crate "$out/"
+            '';
+          });
         clippy = craneLib.cargoClippy (commonArgs
           // {
             inherit cargoArtifacts;
@@ -117,11 +142,10 @@
         # Fail if flake inputs ever point at the retired Codeberg/Codefloe
         # mirrors again (fleet migrated to github.com/caniko/*).
         # sourceUrl package metadata is excluded: informational only, not fetched.
-        host-pinning =
-          let
-            # Split across literals so this file never matches its own pattern.
-            staleHosts = "cod" + "eberg|cod" + "efloe";
-          in
+        host-pinning = let
+          # Split across literals so this file never matches its own pattern.
+          staleHosts = "cod" + "eberg|cod" + "efloe";
+        in
           pkgs.runCommand "visual-rubric-host-pinning" {} ''
             if ${pkgs.lib.getExe pkgs.ripgrep} -v "sourceUrl" ${./flake.nix} ${./flake.lock} \
               | ${pkgs.lib.getExe pkgs.ripgrep} -q "${staleHosts}"; then

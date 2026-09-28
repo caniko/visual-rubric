@@ -5,10 +5,23 @@ edition = "2024"
 rust-version = "1.85"
 license = "EUPL-1.2"
 repository = "https://github.com/caniko/visual-rubric"
+documentation = "https://docs.rs/visual-rubric"
 description = "AI-assisted screenshot rubric runner for local visual UX review"
 readme = "README.md"
 keywords = ["visual-testing", "screenshots", "rubric", "codex", "ux"]
 categories = ["development-tools::testing"]
+include = [
+  "src/**",
+  "tests/**",
+  "Cargo.toml",
+  "Cargo.lock",
+  "README.md",
+  "LICENSE",
+  "CHANGELOG.md",
+]
+
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = []
