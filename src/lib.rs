@@ -291,6 +291,13 @@ pub fn evaluate_image_sequence_rubric_with_options(
             "sequence transition assessment requires at least two frames".to_owned(),
         )));
     }
+    if frames.len() > sequence_options.max_frames {
+        return Err(RubricError::Pool(PoolError::Rpc(format!(
+            "sequence contains {} frames, maximum is {}",
+            frames.len(),
+            sequence_options.max_frames
+        ))));
+    }
     let mut encoded = Vec::with_capacity(frames.len());
     for frame in frames {
         let bytes = std::fs::read(&frame.path).map_err(|source| RubricError::ReadPng {
@@ -302,20 +309,17 @@ pub fn evaluate_image_sequence_rubric_with_options(
             base64::engine::general_purpose::STANDARD.encode(bytes),
         ));
     }
-    if frames.len() > sequence_options.max_frames {
-        return Err(RubricError::Pool(PoolError::Rpc(format!(
-            "sequence contains {} frames, maximum is {}",
-            frames.len(),
-            sequence_options.max_frames
-        ))));
-    }
     let transition_instruction = if sequence_options.require_transition {
         "Check every checkpoint and whether each before/after transition is visible and semantically correct."
     } else {
         "Check every checkpoint for visual and semantic correctness. Transition assessment is disabled."
     };
+    let system_prompt = opts
+        .system_prompt
+        .as_deref()
+        .map_or(DEFAULT_SYSTEM_PROMPT, |prompt| prompt);
     let prompt = format!(
-        "{DEFAULT_SYSTEM_PROMPT}\n\nEvaluate this ordered interaction sequence. {transition_instruction}\nQuestion: {question}"
+        "{system_prompt}\n\nEvaluate this ordered interaction sequence. {transition_instruction}\nQuestion: {question}"
     );
     let text = run_codex_acp_sequence(
         &encoded,

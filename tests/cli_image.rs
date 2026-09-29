@@ -6,8 +6,9 @@ use std::ffi::OsString;
 use std::process::Command;
 
 use visual_rubric::{
-    ConfigMode, RubricOptions, RubricRunConfig, direct_codex_gpt_config,
-    evaluate_image_rubric_with_config,
+    ConfigMode, PoolError, RubricError, RubricOptions, RubricRunConfig, SequenceFrame,
+    SequenceOptions, direct_codex_gpt_config, evaluate_image_rubric_with_config,
+    evaluate_image_sequence_rubric_with_options,
 };
 
 #[test]
@@ -109,6 +110,121 @@ fn image_forwards_model_effort_and_system_prompt_to_custom_acp() {
     let prompts = std::fs::read_to_string(prompt_log).expect("prompt log");
     assert!(prompts.contains("Project rubric"), "{prompts}");
     assert!(prompts.contains("Question: Does it pass?"), "{prompts}");
+}
+
+#[test]
+fn sequence_api_honors_custom_and_default_system_prompts() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let image = common::write_fixture_png(&temp);
+    let frames = ["before", "after"].map(|label| SequenceFrame {
+        label: label.to_owned(),
+        path: image.clone(),
+    });
+    for custom in [Some("Project-specific sequence rubric"), None] {
+        let prompt_log = temp.path().join(if custom.is_some() {
+            "custom.log"
+        } else {
+            "default.log"
+        });
+        let verdict = evaluate_image_sequence_rubric_with_options(
+            &frames,
+            "Did the menu open?",
+            RubricOptions {
+                system_prompt: custom.map(str::to_owned),
+                ..RubricOptions::default()
+            },
+            RubricRunConfig {
+                codex_acp_binary: fake.clone(),
+                extra_env: vec![
+                    (
+                        OsString::from("FAKE_CODEX_ACP_MODE"),
+                        OsString::from("pass"),
+                    ),
+                    (
+                        OsString::from("FAKE_CODEX_ACP_PROMPT_LOG"),
+                        prompt_log.as_os_str().to_owned(),
+                    ),
+                ],
+                ..RubricRunConfig::default()
+            },
+            SequenceOptions::default(),
+        )
+        .expect("sequence verdict");
+        assert_eq!(verdict.verdict, "pass");
+        let prompt = std::fs::read_to_string(prompt_log).expect("prompt log");
+        assert!(
+            prompt.contains(custom.unwrap_or(visual_rubric::DEFAULT_SYSTEM_PROMPT)),
+            "{prompt}"
+        );
+        assert!(prompt.contains("Question: Did the menu open?"), "{prompt}");
+        assert!(prompt.contains("before/after transition"), "{prompt}");
+        if custom.is_some() {
+            assert!(
+                !prompt.contains(visual_rubric::DEFAULT_SYSTEM_PROMPT),
+                "{prompt}"
+            );
+        }
+    }
+}
+
+#[test]
+fn sequence_cli_forwards_preset_system_prompt() {
+    let Some(fake) = common::fake_codex_acp_binary() else {
+        eprintln!("skipping: fake-codex-acp feature is not enabled");
+        return;
+    };
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let image = common::write_fixture_png(&temp);
+    let prompt_log = temp.path().join("prompts.log");
+    let output = Command::new(env!("CARGO_BIN_EXE_visual-rubric"))
+        .arg("sequence")
+        .arg("--frame")
+        .arg(format!("before={}", image.display()))
+        .arg("--frame")
+        .arg(format!("after={}", image.display()))
+        .args(["--preset", "website-install", "--max-frames", "2"])
+        .arg("--codex-acp")
+        .arg(fake)
+        .arg("--json")
+        .env("XDG_CONFIG_HOME", temp.path())
+        .env("FAKE_CODEX_ACP_MODE", "pass")
+        .env("FAKE_CODEX_ACP_PROMPT_LOG", &prompt_log)
+        .output()
+        .expect("run sequence CLI");
+    assert!(output.status.success(), "{output:?}");
+    let prompt = std::fs::read_to_string(prompt_log).expect("prompt log");
+    assert!(
+        prompt.contains(visual_rubric::presets::WEBSITE_INSTALL_SYSTEM_PROMPT),
+        "{prompt}"
+    );
+}
+
+#[test]
+fn sequence_rejects_excess_frames_before_reading_files() {
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let frames = ["before", "during", "after"].map(|label| SequenceFrame {
+        label: label.to_owned(),
+        path: temp.path().join(format!("missing-{label}.png")),
+    });
+    let result = evaluate_image_sequence_rubric_with_options(
+        &frames,
+        "Did the menu open?",
+        RubricOptions::default(),
+        RubricRunConfig::default(),
+        SequenceOptions {
+            max_frames: 2,
+            require_transition: true,
+        },
+    );
+    assert!(
+        matches!(result, Err(RubricError::Pool(PoolError::Rpc(ref message)))
+        if message == "sequence contains 3 frames, maximum is 2"),
+        "{result:?}"
+    );
 }
 
 #[test]
