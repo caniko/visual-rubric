@@ -1,5 +1,4 @@
 use std::fs;
-use std::io::{Read as _, Write as _};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::{
@@ -76,9 +75,30 @@ impl Drop for StaticServer {
     }
 }
 
-fn serve_static_request(mut stream: TcpStream, root: &Path) -> Result<()> {
+fn serve_static_request(
+    mut stream: impl std::io::Read + std::io::Write,
+    root: &Path,
+) -> Result<()> {
     let mut buf = [0; 2048];
-    let n = stream.read(&mut buf).context("read request")?;
+    let mut n = 0;
+    // A TCP read can end anywhere in the request line, including inside the
+    // path. Keep the original byte bound while waiting for the complete line.
+    while n < buf.len() && !buf[..n].contains(&b'\n') {
+        let count = stream.read(&mut buf[n..]).context("read request")?;
+        if count == 0 {
+            break;
+        }
+        n += count;
+    }
+    if !buf[..n].contains(&b'\n') {
+        return write_http_response(
+            &mut stream,
+            "400 Bad Request",
+            "text/plain",
+            b"invalid request line",
+            false,
+        );
+    }
     let request = String::from_utf8_lossy(&buf[..n]);
     let mut request_parts = request
         .lines()
@@ -160,7 +180,7 @@ pub(super) fn content_type(path: &Path) -> &'static str {
 }
 
 fn write_http_response(
-    stream: &mut TcpStream,
+    stream: &mut impl std::io::Write,
     status: &str,
     content_type: &str,
     body: &[u8],
@@ -207,4 +227,68 @@ fn has_valid_percent_escapes(path: &str) -> bool {
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{self, Cursor, Read, Write};
+
+    struct FragmentedRequest {
+        input: Cursor<Vec<u8>>,
+        response: Vec<u8>,
+    }
+
+    impl Read for FragmentedRequest {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            let len = buf.len().min(6);
+            self.input.read(&mut buf[..len])
+        }
+    }
+
+    impl Write for FragmentedRequest {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.response.write(buf)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn fragmented_request_line_is_read_before_resolving_path() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::write(temp.path().join("install.html"), "Install").unwrap();
+        let mut stream = FragmentedRequest {
+            input: Cursor::new(b"GET /install.html HTTP/1.1\r\nHost: localhost\r\n\r\n".to_vec()),
+            response: Vec::new(),
+        };
+        serve_static_request(&mut stream, temp.path()).unwrap();
+        let response = String::from_utf8(stream.response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"), "{response}");
+        assert!(response.ends_with("\r\n\r\nInstall"), "{response}");
+    }
+
+    #[test]
+    fn incomplete_or_oversized_request_lines_are_rejected() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::write(temp.path().join("index.html"), "Index").unwrap();
+        for request in [
+            "GET /".to_owned(),
+            format!("GET /{} HTTP/1.1\r\n", "x".repeat(2048)),
+        ] {
+            let mut stream = FragmentedRequest {
+                input: Cursor::new(request.into_bytes()),
+                response: Vec::new(),
+            };
+            serve_static_request(&mut stream, temp.path()).unwrap();
+            let response = String::from_utf8(stream.response).unwrap();
+            assert!(
+                response.starts_with("HTTP/1.1 400 Bad Request"),
+                "{response}"
+            );
+            assert!(stream.input.position() <= 2048);
+        }
+    }
 }

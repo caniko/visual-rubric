@@ -29,6 +29,8 @@ fn audit_report_records_failures_and_fail_on_rubric_exits_nonzero() {
         .arg(&browser)
         .arg("--report")
         .arg(&report)
+        .arg("--screenshots")
+        .arg(temp.path().join("screenshots"))
         .arg("--codex-acp")
         .arg(fake)
         .arg("--viewport")
@@ -72,6 +74,8 @@ fn audit_report_records_rubric_errors_without_failing_by_default() {
         .arg(&browser)
         .arg("--report")
         .arg(&report)
+        .arg("--screenshots")
+        .arg(temp.path().join("screenshots"))
         .arg("--codex-acp")
         .arg(fake)
         .arg("--viewport")
@@ -89,6 +93,7 @@ fn audit_report_records_rubric_errors_without_failing_by_default() {
         report["screenshots"][0]["rubric"]["message"]
             .as_str()
             .unwrap()
-            .contains("parse rubric verdict")
+            .contains("parse rubric verdict"),
+        "{report}"
     );
 }
