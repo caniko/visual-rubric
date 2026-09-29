@@ -1,6 +1,6 @@
 [package]
 name = "visual-rubric"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
 license = "EUPL-1.2"
@@ -11,13 +11,13 @@ readme = "README.md"
 keywords = ["visual-testing", "screenshots", "rubric", "codex", "ux"]
 categories = ["development-tools::testing"]
 include = [
-  "src/**",
-  "tests/**",
-  "Cargo.toml",
-  "Cargo.lock",
-  "README.md",
-  "LICENSE",
-  "CHANGELOG.md",
+  "/src/**",
+  "/tests/**",
+  "/Cargo.toml",
+  "/Cargo.lock",
+  "/README.md",
+  "/LICENSE",
+  "/CHANGELOG.md",
 ]
 
 [package.metadata.docs.rs]

@@ -7,26 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-30
+
 ### Added
 
-- Feature flags for every paradigm: `acp`, `codex-acp`, `opencode`, `http-rubric`, `vision-api`, `pipeline`, `pool`, `audit`, `batch`. Default is empty; users enable what they need. (`codex-acp` was previously the only gated feature.)
-- `fake-opencode` test binary for testing the opencode ACP backend.
-- CI check for `--no-default-features` clippy compliance.
+- Coverage contracts and reports for declared surfaces, transitions, and exclusions.
+- Calibration corpus contracts, deterministic checks, and browser capture tooling.
+- All-feature package and documentation checks, and a check using the declared
+  minimum Rust version.
 
 ### Changed
 
-- `ConfigMode` variants (`Direct`, `Pipeline`) are always compiled; dispatch arms error at runtime when the required backend feature is missing.
-- `configured` subcommand always compiled; runtime error if no backend enabled.
-- `http-rubric` now gates `call_text_api` separately from `vision-api`.
-- `audit` subcommand gated behind dedicated `audit` feature (implies `codex-acp`).
-- `pipeline` subcommand gated behind `pipeline` feature (implies `vision-api`).
-- `pool`, `batch` modules gated behind `pool` and `batch` features respectively.
-- Audit-only test helpers and integration tests gated behind `audit` feature.
-- Pool integration tests gated behind `pool` feature.
+- The `audit` feature also enables `batch`, matching the audit command's use of
+  the batch runner.
+- Repository and release workflow ownership moved to GitHub.
+- Crate packages explicitly include source, fixtures, README, license, and changelog.
+
+### Fixed
+
+- Direct sequence evaluation honors custom and preset system prompts, matching
+  single-image and pipeline evaluation.
+- Oversized direct sequences are rejected before reading or encoding frame files.
+- Local audit serving reads complete, bounded HTTP request lines, avoiding false
+  missing-file responses when a request arrives in multiple TCP reads.
+
+### Security
+
+- Updated the lockfile to rustls 0.23.45 for RUSTSEC-2026-0285 and to the
+  non-yanked chacha20 0.10.2 release.
 
 ### Removed
 
-- `default_acp_binary`, `default_acp_args` helper functions (their values are inlined in `RubricRunConfig::default()`).
+- **Breaking:** the public `build_codex_acp_args` re-export. Consumers must use
+  the supported configuration and evaluation APIs rather than constructing the
+  internal ACP command line through that helper.
 
 ## [0.3.0] - 2026-07-16
 
@@ -98,6 +112,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve structured rubric anomaly details and keep fake browser test wrappers portable across shell environments.
 
-[Unreleased]: https://codeberg.org/caniko/visual-rubric/compare/0.3.0...HEAD
+[Unreleased]: https://github.com/caniko/visual-rubric/compare/0.4.0...HEAD
+[0.4.0]: https://github.com/caniko/visual-rubric/compare/0.3.0...0.4.0
 [0.3.0]: https://codeberg.org/caniko/visual-rubric/compare/0.2.0...0.3.0
 [0.2.0]: https://codeberg.org/caniko/visual-rubric/compare/0.1.0...0.2.0

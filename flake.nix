@@ -50,6 +50,9 @@
       };
       cross = harbor-rs.lib.mkCross {inherit pkgs system;};
       inherit (toolchain) craneLib;
+      # Verify the advertised minimum with its own compiler and artifacts.
+      msrv = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.rust-version;
+      msrvCraneLib = craneLib.overrideToolchain pkgs.rust-bin.stable."${msrv}.0".minimal;
 
       src = pkgs.lib.fileset.toSource {
         root = ./.;
@@ -66,6 +69,8 @@
         strictDeps = true;
       };
       cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+      msrvArgs = commonArgs // {cargoExtraArgs = "--all-features";};
+      msrvArtifacts = msrvCraneLib.buildDepsOnly msrvArgs;
       package = craneLib.buildPackage (commonArgs // {inherit cargoArtifacts;});
       codexAcpArgs =
         commonArgs
@@ -110,6 +115,13 @@
           // {
             inherit cargoArtifacts;
             cargoTestExtraArgs = "--all-features";
+          });
+        msrv = msrvCraneLib.mkCargoDerivation (msrvArgs
+          // {
+            cargoArtifacts = msrvArtifacts;
+            pname = "visual-rubric-msrv";
+            buildPhaseCargoCommand = "cargo check --locked --offline --all-features --all-targets";
+            doCheck = false;
           });
         docs = craneLib.cargoDoc (commonArgs
           // {
