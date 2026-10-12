@@ -2,12 +2,12 @@
   description = "Rust project";
 
   inputs = {
-    harbor-rs = {
-      url = "git+https://github.com/caniko/harbor-rs.git?ref=trunk&rev=ed89d0b13fc61dd1b2217bf4bba97f32cec27ba7";
+    harbor = {
+      url = "git+https://github.com/caniko/harbor.git?ref=feat/harbor-monorepo-components&rev=e8b1996580e4ecd51dd402edf4a16d9df88e3a1b";
     };
 
-    nixpkgs.follows = "harbor-rs/nixpkgs";
-    rust-overlay.follows = "harbor-rs/rust-overlay";
+    nixpkgs.follows = "harbor/nixpkgs";
+    rust-overlay.follows = "harbor/rust-overlay";
     flake-utils.url = "github:numtide/flake-utils";
 
     treefmt-nix = {
@@ -16,10 +16,11 @@
     };
     git-hooks = {
       url = "github:cachix/git-hooks.nix";
-      inputs.nixpkgs.follows = "nixpkgs";
+      # The hook runner imports its own package set, including on Intel macOS.
+      inputs.nixpkgs.follows = "harbor/nixpkgs-darwin";
     };
     plinth = {
-      url = "git+https://github.com/caniko/plinth.git?ref=refs/heads/trunk";
+      url = "git+https://github.com/caniko/plinth.git?ref=migrate/harbor-combined-20261012-features&rev=534dfa6dd6217db97b7ccd313501120a3c34d912";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -27,7 +28,7 @@
   outputs = {
     self,
     nixpkgs,
-    harbor-rs,
+    harbor,
     flake-utils,
     rust-overlay,
     treefmt-nix,
@@ -36,19 +37,24 @@
     ...
   }:
     flake-utils.lib.eachDefaultSystem (system: let
-      pkgs = import nixpkgs {
-        inherit system;
-        overlays = [(import rust-overlay)];
-      };
+      pkgs =
+        import (
+          if system == "x86_64-darwin"
+          then harbor.inputs.nixpkgs-darwin
+          else nixpkgs
+        ) {
+          inherit system;
+          overlays = [(import rust-overlay)];
+        };
 
-      toolchain = harbor-rs.lib.mkToolchain {
+      toolchain = harbor.lib.rust.mkToolchain {
         inherit pkgs;
         toolchainProfile = "nightly";
         extensions = ["rustfmt" "clippy"];
         withRustAnalyzer = false;
         crossTargets = [];
       };
-      cross = harbor-rs.lib.mkCross {inherit pkgs system;};
+      cross = harbor.lib.rust.mkCross {inherit pkgs system;};
       inherit (toolchain) craneLib;
       # Verify the advertised minimum with its own compiler and artifacts.
       msrv = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.rust-version;
@@ -182,7 +188,7 @@
           shellHook = pre-commit-check.shellHook;
         };
 
-        docs = harbor-rs.lib.mkDocsShell {
+        docs = harbor.lib.rust.mkDocsShell {
           inherit pkgs cross;
           inherit (toolchain) craneLib;
           checks = self.checks.${system};
