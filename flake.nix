@@ -103,9 +103,28 @@
         website = website;
         site = website;
       };
-      apps.deploy-pages = plinth.lib.${system}.mkDeployPagesApp {
-        domain = "visual-rubric.tartanoglu.com";
-      };
+      apps =
+        {
+          deploy-pages = plinth.lib.${system}.mkDeployPagesApp {
+            domain = "visual-rubric.tartanoglu.com";
+          };
+        }
+        // pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux {
+          # Simit prebuild publication on trunk (secret ATTIC_TOKEN). Linux
+          # outputs only: darwin builds never reach the public canix cache.
+          push-flake-inputs = harbor-rs.lib.mkAtticPush {
+            inherit pkgs;
+            flake = ".";
+            paths = [package codexAcpPackage];
+            adapter = harbor-rs.lib.mkAdapter {
+              attic = {
+                endpoint = "https://attic.candee.baby";
+                cache = "canix";
+                tokenEnvVar = "ATTIC_TOKEN";
+              };
+            };
+          };
+        };
       formatter = treefmtEval.config.build.wrapper;
       checks = {
         default = package;
