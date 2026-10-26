@@ -10,6 +10,7 @@ nix_builds = [
   ".#packages.x86_64-linux.default",
   ".#packages.x86_64-linux.codex-acp",
 ]
+publish_strategy = "members"
 
 [prebuild]
 publish_attic = true
