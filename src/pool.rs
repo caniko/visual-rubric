@@ -232,11 +232,12 @@ impl Worker {
 
         while let Ok(job) = self.jobs.recv() {
             let result = self.handle_job(&mut runtime, &job);
-            let fatal_quota = matches!(result, Err(PoolError::QuotaExceeded));
-            let _ = job.reply.send(result);
-            if fatal_quota {
+            // Publish the fatal state before replying, or a caller that
+            // resubmits right after the reply can still reach a worker.
+            if matches!(result, Err(PoolError::QuotaExceeded)) {
                 self.shared.fatal_quota.store(true, Ordering::Release);
             }
+            let _ = job.reply.send(result);
             if self.shared.alive_mask.load(Ordering::Acquire) & worker_bit(self.id) == 0 {
                 break;
             }
