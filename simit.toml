@@ -1,4 +1,5 @@
 [ci]
+push_branches = ["trunk", "simit/update/**"]
 runner = "ubuntu-24.04"
 runtime = "nix"
 step_runners = { cargo-clippy = "ubuntu-24.04", cargo-doc = "ubuntu-24.04", cargo-fmt = "ubuntu-24.04", cargo-package = "ubuntu-24.04", cargo-test = "ubuntu-24.04", nix-check = "ubuntu-24.04", quality-tools = "ubuntu-24.04" }
@@ -10,8 +11,10 @@ nix_builds = [
   ".#packages.x86_64-linux.default",
   ".#packages.x86_64-linux.codex-acp",
 ]
+publish_strategy = "members"
 
 [prebuild]
+push_branches = ["trunk", "simit/update/**"]
 publish_attic = true
 attic_app = ".#push-flake-inputs"
 system_runners = { x86_64-linux = "ubuntu-24.04" }
