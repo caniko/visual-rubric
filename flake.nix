@@ -83,17 +83,15 @@
           cargoArtifacts = codexAcpCargoArtifacts;
         });
       # `cargo binstall visual-rubric` archives, built per target and published
-      # by the release workflow. Linux only: every non-Linux target fails to
-      # compile because `src/config.rs` calls `dirs::config_dir()` from a
-      # `#[cfg(not(target_os = "linux"))]` branch and `dirs` is not a declared
-      # dependency (E0433). Add that target list entry once it builds.
+      # by the release workflow. No macOS archive yet: nothing has built
+      # this crate for aarch64-darwin, so add the target with a macOS runner.
       release = harbor-rs.lib.mkBinstallRelease {
         inherit pkgs system;
         pname = "visual-rubric";
         version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
         inherit commonArgs;
         crates.visual-rubric = {cargoToml = ./Cargo.toml;};
-        targets.x86_64-linux = ["x86_64-linux-musl" "aarch64-linux-musl"];
+        targets.x86_64-linux = ["x86_64-linux-musl" "aarch64-linux-musl" "windows"];
       };
       website = plinth.lib.${system}.mkProjectSite {
         pname = "visual-rubric-website";

@@ -82,6 +82,14 @@ bin-dir = "bin/{ bin }{ binary-ext }"
 pkg-url = "{ repo }/releases/download/{ version }/visual-rubric-{ version }-aarch64-unknown-linux-musl.tar.gz"
 pkg-fmt = "tgz"
 bin-dir = "bin/{ bin }{ binary-ext }"
+[package.metadata.binstall.overrides.x86_64-pc-windows-gnu]
+pkg-url = "{ repo }/releases/download/{ version }/visual-rubric-{ version }-x86_64-pc-windows-gnu.zip"
+pkg-fmt = "zip"
+bin-dir = "bin/{ bin }{ binary-ext }"
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-url = "{ repo }/releases/download/{ version }/visual-rubric-{ version }-x86_64-pc-windows-gnu.zip"
+pkg-fmt = "zip"
+bin-dir = "bin/{ bin }{ binary-ext }"
 [package.metadata.binstall.overrides.x86_64-unknown-linux-gnu]
 pkg-url = "{ repo }/releases/download/{ version }/visual-rubric-{ version }-x86_64-unknown-linux-musl.tar.gz"
 pkg-fmt = "tgz"

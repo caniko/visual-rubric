@@ -278,7 +278,15 @@ fn config_candidates() -> Vec<PathBuf> {
 }
 
 fn config_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "linux")]
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA").map(PathBuf::from)
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::env::var_os("HOME").map(|h| PathBuf::from(h).join("Library/Application Support"))
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         std::env::var("XDG_CONFIG_HOME")
             .ok()
@@ -288,9 +296,5 @@ fn config_dir() -> Option<PathBuf> {
                     .ok()
                     .map(|h| PathBuf::from(h).join(".config"))
             })
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        dirs::config_dir()
     }
 }
