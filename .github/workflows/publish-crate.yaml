@@ -132,6 +132,8 @@ jobs:
           nix develop -c cargo package --locked --allow-dirty --no-verify -p visual-rubric --target-dir "$RUNNER_TEMP/simit-package-target"
           mkdir -p "$RUNNER_TEMP/simit-crates/visual-rubric"
           cp "$RUNNER_TEMP/simit-package-target/package/visual-rubric-$version.crate" "$RUNNER_TEMP/simit-crates/visual-rubric/"
+          size="$(wc -c < "$RUNNER_TEMP/simit-crates/visual-rubric/visual-rubric-$version.crate")"
+          test "$size" -le 10485760 || { echo "crate visual-rubric archive is $size bytes, over the crates.io upload limit of 10485760 bytes (10 MiB)" >&2; exit 1; }
       - name: Retain original-run archive visual-rubric
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
