@@ -32,7 +32,7 @@ token_secret = "ATTIC_TOKEN"
 [release.artifacts]
 prebuild_binaries = true
 binstall = true
-sign = false
+sign = true
 system_runners = { x86_64-linux = "ubuntu-24.04" }
 
 [ci.pages]
