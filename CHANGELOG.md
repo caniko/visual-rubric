@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-11
+
+### Changed
+
+- Release checksums are now signed with minisign, and release archives are
+  cosign-signed and attested; verify `SHA256SUMS.txt` against
+  `keys/minisign.pub` before installing.
+
 ## [0.4.0] - 2026-09-30
 
 ### Added
@@ -112,7 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve structured rubric anomaly details and keep fake browser test wrappers portable across shell environments.
 
-[Unreleased]: https://github.com/caniko/visual-rubric/compare/0.4.0...HEAD
+[Unreleased]: https://github.com/caniko/visual-rubric/compare/0.4.1...HEAD
+[0.4.1]: https://github.com/caniko/visual-rubric/compare/0.4.0...0.4.1
 [0.4.0]: https://github.com/caniko/visual-rubric/compare/0.3.0...0.4.0
 [0.3.0]: https://codeberg.org/caniko/visual-rubric/compare/0.2.0...0.3.0
 [0.2.0]: https://codeberg.org/caniko/visual-rubric/compare/0.1.0...0.2.0
