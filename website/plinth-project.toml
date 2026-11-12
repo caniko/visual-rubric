@@ -1,45 +1,81 @@
 [site]
 title = "visual-rubric"
-description = "<!-- simit:badges:start -->"
+description = "Judge screenshots with a model that must answer in strict JSON, inside a loop that pools processes and retries."
 base_url = "/"
-footer_note = "Generated from repository metadata by the plinth-project FOSS sweep."
 
 [[nav]]
 label = "Overview"
 href = "#overview"
 
 [[nav]]
+label = "Get started"
+href = "#install"
+
+[[nav]]
 label = "Source"
-href = "ssh://git@github.com/caniko/visual-rubric.git"
+href = "https://github.com/caniko/visual-rubric"
 
 [[footer_links]]
 label = "Source"
-href = "ssh://git@github.com/caniko/visual-rubric.git"
+href = "https://github.com/caniko/visual-rubric"
 
 [[pages]]
 slug = "index"
 title = "visual-rubric"
-description = "<!-- simit:badges:start -->"
+description = "Judge screenshots with a model that must answer in strict JSON, inside a loop that pools processes and retries."
 
 [[pages.sections]]
 type = "hero"
 title = "visual-rubric"
-tagline = "<!-- simit:badges:start -->"
-subtitle = "<!-- simit:badges:start -->"
+tagline = "Catch visual regressions that structural tests cannot see"
+subtitle = "visual-rubric sends a screenshot and a written question to an ACP reviewing agent, requires a strict JSON verdict, and adds the process pooling, retries and changed-asset batches a CI loop needs."
 
 [[pages.sections.ctas]]
 label = "View source"
-href = "ssh://git@github.com/caniko/visual-rubric.git"
+href = "https://github.com/caniko/visual-rubric"
 primary = true
+
+[[pages.sections.ctas]]
+label = "Get started"
+href = "#install"
 
 [[pages.sections]]
 type = "feature_grid"
 id = "overview"
 
 [[pages.sections.features]]
-title = "Rust"
-description = "Project technology detected from repository manifests."
+title = "Verdicts you can branch on"
+description = "The model must answer with verdict, reason and anomalies, so a caller decides from a value instead of parsing prose, and a failed or errored check stays audible."
+highlight = true
 
 [[pages.sections.features]]
-title = "Nix"
-description = "Project technology detected from repository manifests."
+title = "Deterministic gate first"
+description = "A calibration corpus and a capture manifest are checked without calling a model, catching declared DOM, layout and runtime classes before semantic review runs."
+
+[[pages.sections.features]]
+title = "Ordered journeys"
+description = "A sequence is sent as labelled multimodal frames with a bounded frame count, so the rubric judges the transition between checkpoints and not only each state."
+
+[[pages.sections.features]]
+title = "Read-only reviewer"
+description = "The evaluator selects an advertised read-only or plan mode and denies permission requests rather than granting the reviewing model write access to the project."
+
+[[pages.sections]]
+type = "install"
+id = "install"
+heading = "Run a check"
+intro = "The CLI takes an image path and a question; a Home Manager deployment can keep backend, model and mode in a config file instead."
+guide_href = "https://github.com/caniko/visual-rubric"
+
+[[pages.sections.primary_routes]]
+label = "Single image"
+audience = "CLI"
+command = "visual-rubric --image site-desktop.png --question \"Does this page stay readable?\""
+href = "https://github.com/caniko/visual-rubric#visual-rubric"
+recommended = true
+
+[[pages.sections.secondary_routes]]
+label = "Static preview"
+audience = "CLI, manual inspection"
+command = "visual-rubric serve --root website/public --port 1111"
+href = "https://github.com/caniko/visual-rubric#visual-rubric"
