@@ -43,6 +43,21 @@ effort = "medium"
 }
 
 #[test]
+fn direct_toml_opencode_backend_launches_acp_subcommand() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let config_path = temp.path().join("config.toml");
+    std::fs::write(
+        &config_path,
+        "mode = \"direct\"\n\n[rubric]\nbackend = \"/run/current-system/sw/bin/opencode\"\n",
+    )
+    .expect("write config");
+
+    let config = RubricRunConfig::from_config_toml(Some(&config_path));
+
+    assert_eq!(config.acp_args, ["acp"]);
+}
+
+#[test]
 fn sequence_toml_policy_is_loaded_and_bounded() {
     let temp = tempfile::tempdir().expect("tempdir");
     let config_path = temp.path().join("config.toml");

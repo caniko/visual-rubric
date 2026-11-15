@@ -379,14 +379,7 @@ impl Worker {
         if !self.config.acp_args.is_empty() {
             return self.config.acp_args.clone();
         }
-        #[cfg(feature = "codex-acp")]
-        {
-            Vec::new()
-        }
-        #[cfg(not(feature = "codex-acp"))]
-        {
-            vec!["acp".to_string()]
-        }
+        crate::config::default_acp_args(&self.config.codex_acp_binary)
     }
 
     #[allow(unused_variables, clippy::ptr_arg)]
