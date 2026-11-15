@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-15
+
 ### Fixed
 
 - ACP sessions only set `model`, effort and `mode` values the agent offers.
@@ -144,7 +146,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve structured rubric anomaly details and keep fake browser test wrappers portable across shell environments.
 
-[Unreleased]: https://github.com/caniko/visual-rubric/compare/0.4.3...HEAD
+[Unreleased]: https://github.com/caniko/visual-rubric/compare/0.4.4...HEAD
+[0.4.4]: https://github.com/caniko/visual-rubric/compare/0.4.3...0.4.4
 [0.4.3]: https://github.com/caniko/visual-rubric/compare/0.4.2...0.4.3
 [0.4.2]: https://github.com/caniko/visual-rubric/compare/0.4.1...0.4.2
 [0.4.1]: https://github.com/caniko/visual-rubric/compare/0.4.0...0.4.1
