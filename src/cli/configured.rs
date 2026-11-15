@@ -243,12 +243,13 @@ fn direct_rubric_config(
     cli_binary: Option<String>,
     toml_binary: Option<String>,
 ) -> crate::RubricRunConfig {
+    let codex_acp_binary: PathBuf = cli_binary
+        .or(toml_binary)
+        .unwrap_or_else(|| "codex-acp".to_string())
+        .into();
     crate::RubricRunConfig {
-        codex_acp_binary: cli_binary
-            .or(toml_binary)
-            .unwrap_or_else(|| "codex-acp".to_string())
-            .into(),
-        acp_args: Vec::new(),
+        acp_args: crate::config::default_acp_args(&codex_acp_binary),
+        codex_acp_binary,
         url: None,
         api_model: None,
         extra_env: Vec::new(),

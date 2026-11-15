@@ -86,17 +86,17 @@ impl RubricRunConfig {
             ConfigMode::Direct => "codex-acp",
             ConfigMode::Pipeline => "opencode",
         };
-        let acp_args = match toml.rubric.args {
-            Some(args) => args,
-            None if mode == ConfigMode::Direct => direct_codex_acp_args(&toml.rubric),
-            None => vec!["acp".to_string()],
-        };
+        let codex_acp_binary: PathBuf = toml
+            .rubric
+            .backend
+            .unwrap_or_else(|| default_backend.to_string())
+            .into();
+        let acp_args = toml
+            .rubric
+            .args
+            .unwrap_or_else(|| default_acp_args(&codex_acp_binary));
         RubricRunConfig {
-            codex_acp_binary: toml
-                .rubric
-                .backend
-                .unwrap_or_else(|| default_backend.to_string())
-                .into(),
+            codex_acp_binary,
             acp_args,
             url: toml.rubric.url,
             api_model: toml.rubric.model.clone(),
@@ -127,9 +127,14 @@ impl SequenceOptions {
     }
 }
 
-fn direct_codex_acp_args(rubric: &TomlRubric) -> Vec<String> {
-    let _ = rubric;
-    Vec::new()
+/// Launch arguments for an ACP backend when none are configured: opencode
+/// serves ACP only under its `acp` subcommand, while `codex-acp` takes none.
+pub(crate) fn default_acp_args(binary: &Path) -> Vec<String> {
+    if binary.file_name().is_some_and(|name| name == "opencode") {
+        vec!["acp".to_string()]
+    } else {
+        Vec::new()
+    }
 }
 
 /// Returns the default rubric options.

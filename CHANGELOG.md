@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- An `opencode` rubric backend now launches as `opencode acp` when no
+  `[rubric].args` are configured, in direct mode, `configured`, and
+  `RubricPool`. Previously direct mode started bare `opencode`, which does
+  not speak ACP.
+
 ## [0.4.2] - 2026-11-12
 
 ### Fixed
