@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- ACP sessions only set `model`, effort and `mode` values the agent offers.
+  Values it lacks are skipped with a warning instead of failing the session:
+  opencode has no `read-only` mode (its read-only agent is `plan`), and
+  codex-acp 1.1.4 no longer offers the `gpt-5.5` default. opencode's `effort`
+  option is now recognized.
+
 ## [0.4.3] - 2026-11-15
 
 ### Fixed

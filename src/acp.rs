@@ -120,8 +120,15 @@ impl AcpClient {
             .filter_map(|option| option["id"].as_str())
             .collect::<std::collections::BTreeSet<_>>();
 
+        // ponytail: an unoffered value only warns, so library defaults such as
+        // `gpt-5.5` never break an agent that lacks them; the run then uses the
+        // agent's own default. Make explicit overrides fatal if that misleads.
         let mut set_option = |id: &str, value: &str| -> Result<(), PoolError> {
-            if advertised.contains(id) {
+            if advertised.contains(id) && !offers_value(response, id, value) {
+                eprintln!(
+                    "visual-rubric: ACP agent does not offer {id}={value}; keeping its default"
+                );
+            } else if advertised.contains(id) {
                 let request_id = self.claim_id();
                 self.request(
                     request_id,
@@ -140,14 +147,21 @@ impl AcpClient {
             set_option("model", model)?;
         }
         if let Some(effort) = effort {
-            if advertised.contains("reasoning_effort") {
-                set_option("reasoning_effort", effort)?;
-            } else if advertised.contains("reasoningEffort") {
-                set_option("reasoningEffort", effort)?;
+            if let Some(id) = ["reasoning_effort", "reasoningEffort", "effort"]
+                .into_iter()
+                .find(|id| advertised.contains(id))
+            {
+                set_option(id, effort)?;
             }
         }
         if advertised.contains("mode") {
-            set_option("mode", "read-only")?;
+            // codex-acp offers `read-only`; opencode's read-only agent is `plan`.
+            if let Some(mode) = ["read-only", "plan"]
+                .into_iter()
+                .find(|mode| offers_value(response, "mode", mode))
+            {
+                set_option("mode", mode)?;
+            }
         } else if let Some(modes) = response["modes"]["availableModes"].as_array() {
             if modes.iter().any(|mode| mode["id"] == "read-only") {
                 let request_id = self.claim_id();
@@ -366,4 +380,53 @@ fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
         }
     }
     None
+}
+
+/// Whether a `session/new` response accepts `value` for the config option `id`:
+/// listed in its flat or grouped options, or the option lists none.
+fn offers_value(response: &serde_json::Value, id: &str, value: &str) -> bool {
+    response["configOptions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|option| option["id"] == id)
+        .any(|option| {
+            let entries = option["options"]
+                .as_array()
+                .map(Vec::as_slice)
+                .unwrap_or_default();
+            entries.is_empty()
+                || entries.iter().any(|entry| {
+                    entry["value"] == value
+                        || entry["options"]
+                            .as_array()
+                            .is_some_and(|group| group.iter().any(|item| item["value"] == value))
+                })
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::offers_value;
+
+    #[test]
+    fn mode_values_come_from_the_advertised_select() {
+        let opencode = serde_json::json!({"configOptions": [{
+            "id": "mode",
+            "type": "select",
+            "options": [{"value": "build"}, {"value": "plan"}],
+        }]});
+        assert!(!offers_value(&opencode, "mode", "read-only"));
+        assert!(offers_value(&opencode, "mode", "plan"));
+
+        let grouped = serde_json::json!({"configOptions": [{
+            "id": "mode",
+            "options": [{"group": "safe", "options": [{"value": "read-only"}]}],
+        }]});
+        assert!(offers_value(&grouped, "mode", "read-only"));
+
+        let unlisted = serde_json::json!({"configOptions": [{"id": "model", "options": []}]});
+        assert!(offers_value(&unlisted, "model", "anything"));
+        assert!(!offers_value(&unlisted, "mode", "read-only"));
+    }
 }
