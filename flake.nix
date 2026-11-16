@@ -3,7 +3,7 @@
 
   inputs = {
     harbor-rs = {
-      url = "git+https://github.com/caniko/harbor-rs.git?ref=trunk&rev=32ff87a4cbf5eac35e8bfa5bd4fb5ab887eb77fd";
+      url = "git+https://github.com/caniko/harbor-rs.git?ref=trunk&rev=a2c6f8e0d0b3356a2528de381e6a095d150971fb";
     };
 
     nixpkgs.follows = "harbor-rs/nixpkgs";
