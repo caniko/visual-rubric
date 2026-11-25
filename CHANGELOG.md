@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-11-25
+
 ### Fixed
 
 - ACP sessions use the options returned after changing the model or mode,
@@ -151,7 +153,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Preserve structured rubric anomaly details and keep fake browser test wrappers portable across shell environments.
 
-[Unreleased]: https://github.com/caniko/visual-rubric/compare/0.4.4...HEAD
+[Unreleased]: https://github.com/caniko/visual-rubric/compare/0.4.5...HEAD
+[0.4.5]: https://github.com/caniko/visual-rubric/compare/0.4.4...0.4.5
 [0.4.4]: https://github.com/caniko/visual-rubric/compare/0.4.3...0.4.4
 [0.4.3]: https://github.com/caniko/visual-rubric/compare/0.4.2...0.4.3
 [0.4.2]: https://github.com/caniko/visual-rubric/compare/0.4.1...0.4.2
