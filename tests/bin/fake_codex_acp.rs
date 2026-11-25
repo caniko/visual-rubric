@@ -46,6 +46,26 @@ fn main() {
         }
     }
 
+    let model_switch = matches!(
+        mode.as_str(),
+        "effort-added" | "effort-removed" | "effort-after-mode"
+    );
+    let model_options = |model, effort: &[&str]| {
+        let mut options = vec![
+            serde_json::json!({"id": "model", "name": "Model", "type": "select", "currentValue": model,
+                "options": [{"value": "default", "name": "Default"}, {"value": "custom-model", "name": "Custom"}]}),
+            serde_json::json!({"id": "mode", "name": "Mode", "type": "select", "currentValue": "plan",
+                "options": [{"value": "plan", "name": "Plan"}]}),
+        ];
+        if let Some(current) = effort.first() {
+            options.push(
+                serde_json::json!({"id": "effort", "name": "Effort", "type": "select",
+                "currentValue": current, "options": effort.iter().map(|value|
+                    serde_json::json!({"value": value, "name": value})).collect::<Vec<_>>()}),
+            );
+        }
+        options
+    };
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     for line in BufReader::new(stdin.lock()).lines() {
@@ -62,6 +82,12 @@ fn main() {
                 "jsonrpc": "2.0",
                 "id": id,
                 "result": {}
+            }),
+            "session/new" if model_switch => serde_json::json!({
+                "jsonrpc": "2.0", "id": id,
+                "result": {"sessionId": "fake-session", "configOptions": model_options(
+                    "default", if mode == "effort-removed" { &["high"] } else { &[] }
+                )}
             }),
             "session/new" => serde_json::json!({
                 "jsonrpc": "2.0",
@@ -89,14 +115,43 @@ fn main() {
                             )
                         });
                 }
-                serde_json::json!({"jsonrpc": "2.0", "id": id, "result": {}})
+                let config_id = msg["params"]["configId"].as_str();
+                let value = msg["params"]["value"].as_str();
+                let result = match (mode.as_str(), config_id, value) {
+                    ("effort-added", Some("model"), Some("custom-model"))
+                    | ("effort-after-mode", Some("mode"), Some("plan")) => serde_json::json!({
+                        "configOptions": model_options("custom-model", &["low", "medium", "high"])
+                    }),
+                    (_, Some("model"), Some("custom-model")) if model_switch => serde_json::json!({
+                        "configOptions": model_options("custom-model", &[])
+                    }),
+                    (_, Some("mode"), Some("plan")) if model_switch => {
+                        serde_json::json!({"configOptions": []})
+                    }
+                    ("effort-added" | "effort-after-mode", Some("effort"), Some("high")) => {
+                        serde_json::json!({})
+                    }
+                    _ if model_switch => serde_json::Value::Null,
+                    _ => serde_json::json!({}),
+                };
+                if result.is_null() {
+                    serde_json::json!({"jsonrpc": "2.0", "id": id, "error": {
+                        "code": -32602, "message": "unexpected config option"
+                    }})
+                } else {
+                    serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result})
+                }
             }
             "session/prompt" if mode == "prompt_crash" => {
                 eprintln!("fake codex-acp prompt crash requested");
                 std::process::exit(3);
             }
             "session/prompt"
-                if mode == "pass" || mode == "fail" || mode == "chunks" || mode == "malformed" =>
+                if model_switch
+                    || mode == "pass"
+                    || mode == "fail"
+                    || mode == "chunks"
+                    || mode == "malformed" =>
             {
                 let session_id = msg["params"]["sessionId"]
                     .as_str()

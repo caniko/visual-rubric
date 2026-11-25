@@ -101,66 +101,65 @@ impl AcpClient {
                 ))
             })?
             .to_string();
-        self.apply_session_options(&response, &session_id, model, effort)?;
+        self.apply_session_options(response, &session_id, model, effort)?;
         self.session_id = Some(session_id);
         Ok(())
     }
 
     fn apply_session_options(
         &mut self,
-        response: &serde_json::Value,
+        mut response: serde_json::Value,
         session_id: &str,
         model: Option<&str>,
         effort: Option<&str>,
     ) -> Result<(), PoolError> {
-        let advertised = response["configOptions"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|option| option["id"].as_str())
-            .collect::<std::collections::BTreeSet<_>>();
+        let mut options = response["configOptions"].take();
 
         // ponytail: an unoffered value only warns, so library defaults such as
         // `gpt-5.5` never break an agent that lacks them; the run then uses the
         // agent's own default. Make explicit overrides fatal if that misleads.
-        let mut set_option = |id: &str, value: &str| -> Result<(), PoolError> {
-            if advertised.contains(id) && !offers_value(response, id, value) {
-                eprintln!(
-                    "visual-rubric: ACP agent does not offer {id}={value}; keeping its default"
-                );
-            } else if advertised.contains(id) {
-                let request_id = self.claim_id();
-                self.request(
-                    request_id,
-                    "session/set_config_option",
-                    serde_json::json!({
-                        "sessionId": session_id,
-                        "configId": id,
-                        "value": value,
-                    }),
-                )?;
-            }
-            Ok(())
-        };
+        let set_option =
+            |client: &mut Self, options: &mut serde_json::Value, id: &str, value: &str| {
+                if !option_is_advertised(options, id) {
+                    return Ok(());
+                }
+                if !offers_value(options, id, value) {
+                    eprintln!(
+                        "visual-rubric: ACP agent does not offer {id}={value}; keeping its default"
+                    );
+                } else {
+                    let request_id = client.claim_id();
+                    let mut updated = client.request(
+                        request_id,
+                        "session/set_config_option",
+                        serde_json::json!({
+                            "sessionId": session_id,
+                            "configId": id,
+                            "value": value,
+                        }),
+                    )?;
+                    // Some agents acknowledge changes with no usable options list.
+                    // A nonempty list is a full snapshot, not a patch.
+                    if updated["configOptions"]
+                        .as_array()
+                        .is_some_and(|options| !options.is_empty())
+                    {
+                        *options = updated["configOptions"].take();
+                    }
+                }
+                Ok(())
+            };
 
         if let Some(model) = model {
-            set_option("model", model)?;
+            set_option(self, &mut options, "model", model)?;
         }
-        if let Some(effort) = effort {
-            if let Some(id) = ["reasoning_effort", "reasoningEffort", "effort"]
-                .into_iter()
-                .find(|id| advertised.contains(id))
-            {
-                set_option(id, effort)?;
-            }
-        }
-        if advertised.contains("mode") {
+        if option_is_advertised(&options, "mode") {
             // codex-acp offers `read-only`; opencode's read-only agent is `plan`.
             if let Some(mode) = ["read-only", "plan"]
                 .into_iter()
-                .find(|mode| offers_value(response, "mode", mode))
+                .find(|mode| offers_value(&options, "mode", mode))
             {
-                set_option("mode", mode)?;
+                set_option(self, &mut options, "mode", mode)?;
             }
         } else if let Some(modes) = response["modes"]["availableModes"].as_array() {
             if modes.iter().any(|mode| mode["id"] == "read-only") {
@@ -170,6 +169,14 @@ impl AcpClient {
                     "session/set_mode",
                     serde_json::json!({"sessionId": session_id, "modeId": "read-only"}),
                 )?;
+            }
+        }
+        if let Some(effort) = effort {
+            if let Some(id) = ["reasoning_effort", "reasoningEffort", "effort"]
+                .into_iter()
+                .find(|id| option_is_advertised(&options, id))
+            {
+                set_option(self, &mut options, id, effort)?;
             }
         }
         Ok(())
@@ -382,10 +389,16 @@ fn parse_retry_after(error: &serde_json::Value) -> Option<std::time::Duration> {
     None
 }
 
-/// Whether a `session/new` response accepts `value` for the config option `id`:
+fn option_is_advertised(options: &serde_json::Value, id: &str) -> bool {
+    options
+        .as_array()
+        .is_some_and(|options| options.iter().any(|option| option["id"] == id))
+}
+
+/// Whether the agent advertises `value` for the config option `id`:
 /// listed in its flat or grouped options, or the option lists none.
-fn offers_value(response: &serde_json::Value, id: &str, value: &str) -> bool {
-    response["configOptions"]
+fn offers_value(options: &serde_json::Value, id: &str, value: &str) -> bool {
+    options
         .as_array()
         .into_iter()
         .flatten()
@@ -411,21 +424,21 @@ mod tests {
 
     #[test]
     fn mode_values_come_from_the_advertised_select() {
-        let opencode = serde_json::json!({"configOptions": [{
+        let opencode = serde_json::json!([{
             "id": "mode",
             "type": "select",
             "options": [{"value": "build"}, {"value": "plan"}],
-        }]});
+        }]);
         assert!(!offers_value(&opencode, "mode", "read-only"));
         assert!(offers_value(&opencode, "mode", "plan"));
 
-        let grouped = serde_json::json!({"configOptions": [{
+        let grouped = serde_json::json!([{
             "id": "mode",
             "options": [{"group": "safe", "options": [{"value": "read-only"}]}],
-        }]});
+        }]);
         assert!(offers_value(&grouped, "mode", "read-only"));
 
-        let unlisted = serde_json::json!({"configOptions": [{"id": "model", "options": []}]});
+        let unlisted = serde_json::json!([{"id": "model", "options": []}]);
         assert!(offers_value(&unlisted, "model", "anything"));
         assert!(!offers_value(&unlisted, "mode", "read-only"));
     }

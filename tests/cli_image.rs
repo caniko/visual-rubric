@@ -112,6 +112,69 @@ fn image_forwards_model_effort_and_system_prompt_to_custom_acp() {
     assert!(prompts.contains("Question: Does it pass?"), "{prompts}");
 }
 
+#[cfg(feature = "fake-codex-acp")]
+#[test]
+fn image_sets_effort_added_by_model_switch() {
+    assert_effort_requests("effort-added", true);
+}
+
+#[cfg(feature = "fake-codex-acp")]
+#[test]
+fn image_skips_effort_removed_by_model_switch() {
+    assert_effort_requests("effort-removed", false);
+}
+
+#[cfg(feature = "fake-codex-acp")]
+#[test]
+fn image_sets_effort_added_by_mode_switch() {
+    assert_effort_requests("effort-after-mode", true);
+}
+
+#[cfg(feature = "fake-codex-acp")]
+fn assert_effort_requests(scenario: &str, sends_effort: bool) {
+    let temp = tempfile::TempDir::new().expect("tempdir");
+    let image = common::write_fixture_png(&temp);
+    let config_log = temp.path().join("config.log");
+    let output = Command::new(env!("CARGO_BIN_EXE_visual-rubric"))
+        .args(["image", "--image"])
+        .arg(image)
+        .args([
+            "--question",
+            "Does it pass?",
+            "--model",
+            "custom-model",
+            "--effort",
+            "high",
+        ])
+        .args([
+            "--codex-acp",
+            env!("CARGO_BIN_EXE_fake-codex-acp"),
+            "--json",
+        ])
+        .env("XDG_CONFIG_HOME", temp.path())
+        .env("FAKE_CODEX_ACP_MODE", scenario)
+        .env("FAKE_CODEX_ACP_CONFIG_LOG", &config_log)
+        .output()
+        .expect("run visual-rubric");
+    assert!(output.status.success(), "{output:?}");
+
+    let log = std::fs::read_to_string(config_log).expect("config log");
+    let actual: Vec<serde_json::Value> = log
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("config request"))
+        .collect();
+    let mut expected = vec![
+        serde_json::json!({"sessionId": "fake-session", "configId": "model", "value": "custom-model"}),
+        serde_json::json!({"sessionId": "fake-session", "configId": "mode", "value": "plan"}),
+    ];
+    if sends_effort {
+        expected.push(
+            serde_json::json!({"sessionId": "fake-session", "configId": "effort", "value": "high"}),
+        );
+    }
+    assert_eq!(actual, expected);
+}
+
 #[test]
 fn sequence_api_honors_custom_and_default_system_prompts() {
     let Some(fake) = common::fake_codex_acp_binary() else {
