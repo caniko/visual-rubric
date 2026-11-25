@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- ACP sessions use the options returned after changing the model or mode,
+  so OpenCode applies the requested effort only when the selected model offers it.
+
 ## [0.4.4] - 2026-11-15
 
 ### Fixed
